@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/css.css') }}">
+</head>
+<body>
+
+<h1>index page </h1>
+ 
+    <ul>
+        {% for d in data %}
+        <li>{{ d.name }}今年{{ d.age }}岁了</li>
+        {% endfor %}
+    </ul>
+
+    <h1>{{username}}的公众号 - {{username}}杂谈</h1>
+############ pymysql 返回  
+    <h2>{{xxx | safe}}</h2>
+    <h1>所有人员</h1>
+    <table>
+          <tr>
+            <th>ID</th>
+            <th>姓名</th>
+            <th>房号</th>
+          </tr>
+        {% for test in testdata %}
+          <tr>
+            <td>{{ test[0] }}</td>
+            <td>{{ test[1] }}</td>
+            <td>{{ test[2] }}</td>
+          </tr>
+        {% endfor %}
+    </table>
+############ pymysql 返回json     
+<h3>{{id}}</h3>
+{% if name %}
+<h1>{{name}}:test name</h1>
+{% else %}
+<h1>Hello word!</h1>
+{% endif %}
+<h1>{{home}}:test variable</h1>
+############ json  
+<h3>{{title_name}}</h3>
+{% if name2 %}
+<h1>{{name2}}:test name</h1>
+{% else %}
+<h1>Hello word!</h1>
+{% endif %}
+<h1>{{test_variable}}:test variable</h1>
+
+</body>
+</html>

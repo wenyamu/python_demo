@@ -1,0 +1,25 @@
+version: '3'
+services:
+  dc1:
+    # 镜像本地无则自动下载
+    image: python:alpine
+    hostname: pythonHost
+    # 映射端口 【宿主机端口:容器端口】
+    ports:
+      - "5000:5000"
+      - "8000:8000"
+      - "80:80"
+      - "443:443"
+    # 目录挂载 【宿主机目录:容器目录】
+    volumes:
+      - /root/python:/python
+
+    # 容器名称
+    container_name: pythontest
+    #environment:
+    #  - "SERSYNC=true"
+    restart: always
+    # 相当于 docker run -i
+    stdin_open: true
+    # 相当于 docker run -t
+    tty: true

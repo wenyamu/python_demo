@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="refresh" content="30;url={{ url_for('index') }}">
+    <title>serverList</title>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/css.css') }}">
+</head>
+<body>
+{{ envtest }}
+<h1>supervisor列表 </h1>
+<ul>
+{% for sn in sdict %}
+    <h3>{{ sn }}@{{ sdict[sn]["host"] }}:{{ sdict[sn]["port"] }}--<a href="{{ url_for('restartSupervisor', title = sn) }}">重启Supervisor</a></h3>
+    
+    {% if funAllInfo(sn) == [] %}
+    <li>此服务器不通，请检查设置！</li>
+    {% else %}
+    <li>
+        <a href="{{ url_for('index_one', method = 'supervisor.stopAllProcesses', name = '', title = sn) }}">停止所有进程</a>
+
+        <a href="{{ url_for('index_one', method = 'supervisor.startAllProcesses', name = '', title = sn) }}">启动所有进程</a>
+
+        <a href="{{ url_for('index_restartAll', title = sn) }}">重启所有进程</a>
+    </li>
+    {% for snObj in funAllInfo(sn) %}
+    <li>{{ snObj["name"] }}--{{ snObj["statename"] }}--{{ snObj["description"] }}
+        <a href="{{ url_for('index_one', method = 'supervisor.stopProcess', name = snObj['name'], title = sn) }}">停止进程</a>
+        <a href="{{ url_for('index_one', method = 'supervisor.startProcess', name = snObj['name'], title = sn) }}">启动进程</a>
+        <a href="{{ url_for('index_restartOne', name = snObj['name'], title = sn) }}">重启进程</a>
+    </li>
+    {% endfor %}
+
+    {% endif %}
+    <hr/>
+{% endfor %}
+</ul>
+</body>
+</html>
