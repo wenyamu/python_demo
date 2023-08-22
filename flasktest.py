@@ -7,8 +7,11 @@ app = Flask(__name__,
       )
 
 # __name__ 本文件的文件名（不含后缀）
+
 # template_folder 存放模板的目录，缺省值为当前项目目录下的templates目录
+
 # static_folder 存放静态文件的目录（注意：存放在此目录下的文件，都会被当成静态文件处理，例如php、py文件），通常存放css/js/jpg/html等文件（假设项目的绝对路径为"/py",如果参数值为"/py/sss"时，可以直接通过xxx.com/sss/x.jpg 进行访问，此时static_folder的值做为存放目录以及url访问），缺省值为当前项目目录下的static目录
+
 # static_url_path 访问静态文件的路由设置，可以配合static_folder使用，例如：当static_url_path参数值为"/aaa"时，可以直接通过xxx.com/aaa/x.jpg 进行访问，此时static_folder的值仅做为存放目录，不作为url访问
 
 @app.route("/url_for")
