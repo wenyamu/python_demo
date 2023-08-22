@@ -23,7 +23,7 @@ daemon = False # 守护Gunicorn进程，默认False(即不让其在后台运行�
 reload = True
 #绑定与Nginx通信的端口ipv4、ipv6
 bind = '0.0.0.0:80'
-bind = '[::]:80'
+#bind = '[::]:80'
 #workers = multiprocessing.cpu_count() # 根据计算的CPU数量设置进程数
 workers = 1
 threads = 1 #指定每个进程开启的线程数
