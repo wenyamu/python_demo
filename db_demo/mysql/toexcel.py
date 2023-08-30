@@ -7,11 +7,11 @@ import datetime
 
 class MysqlToExcel():
     def __init__(self):
-        self.host      = 'bdm721903285.my3w.com'
+        self.host      = 'xxx.yyy.com'
         self.port      = 3306
-        self.user      = 'bdm721903285'
-        self.passwd    = 'Bdm721903285'
-        self.db_name   = 'bdm721903285_db'
+        self.user      = 'xxx'
+        self.passwd    = 'XXX'
+        self.db_name   = 'xxx_db'
         self.file_name = 'toexcel.xls' #生成的excel表格，支持xls、xlsx
 
     def get_query_results(self):
