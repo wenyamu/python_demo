@@ -4,7 +4,7 @@
  Source Server         : 70
  Source Server Type    : MySQL
  Source Server Version : 50725
- Source Host           : xxx.my3w.com:3306
+ Source Host           : xxx.yyy.com:3306
  Source Schema         : xxx_db
 
  Target Server Type    : MySQL
