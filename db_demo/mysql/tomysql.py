@@ -5,11 +5,11 @@ book = xlrd.open_workbook("student.xls")
 sheet = book.sheet_by_name("Sheet1")
 #建立一个MySQL连接
 conn = pymysql.connect(
-    host    = 'bdm721903285.my3w.com',
+    host    = 'xxx.yyy.com',
     port    = 3306,
-    user    = 'bdm721903285',
-    passwd  = 'Bdm721903285',
-    db      = 'bdm721903285_db',
+    user    = 'xxx',
+    passwd  = 'XXX',
+    db      = 'xxx_db',
     charset = 'utf8'
     )
 # 获得游标
