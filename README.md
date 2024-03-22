@@ -5,7 +5,7 @@ python flask gunicorn supervisor 演示文件
 
 ### 各文件的功能说明
 
-flasktest.py 是web程序文件，是用 python 写的 web 页的功能代码。类似于xxx.php文件
+flasktest.py 是web程序文件，是用 python 写的 web 页的功能代码。类似于 php 写的 web 页 xxx.php 文件是一个意思
 
 gconf80.py 是作为启动 gunicorn 的配置文件，对 gunicorn 的监听端口，线程数等参数进行设置。
 
