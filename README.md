@@ -10,5 +10,7 @@ flasktest.py 是web程序文件，是用 python 写的 web 页的功能代码。
 gconf80.py 是作为启动 gunicorn 的配置文件，对 gunicorn 的监听端口，线程数等参数进行设置。
 
 flask80.conf 是作为 supervisor 管理的子进程的配置文件，对 gunicorn 进程的一些管理。其中有 gunicorn 启动的 web 程序。
-
+```bash
+command = /usr/local/bin/gunicorn -c /python/gconf80.py flasktest:app
+```
 supervisor_flaskapp.conf 是作为启动 supervisor 时的主配置文件，主配置文件中会引入 flask80.conf 子配置文件。
