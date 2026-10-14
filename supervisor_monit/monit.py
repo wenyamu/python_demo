@@ -21,19 +21,19 @@ def index_getenv():
 # 字典形式
 serverDict = {
     "pyweb1":{
-        "host":"8.210.236.200",
+        "host":"192.168.1.121",
         "port":"8000",
         "user":"admin",
         "passwd":"admin",
     },
     "pyweb2":{
-        "host":"8.210.236.200",
+        "host":"192.168.1.122",
         "port":"8001",
         "user":"admin",
         "passwd":"admin",
     },
     "pyweb3":{
-        "host":"8.210.236.200",
+        "host":"192.168.1.123",
         "port":"8002",
         "user":"admin",
         "passwd":"admin",
