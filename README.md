@@ -4,6 +4,7 @@ python flask gunicorn supervisor 演示文件
 搞懂 flask gunicorn supervisor 的作用和关系
 
 > 注意：supervisor 有两种安装方式，一种是 `apt install supervisor`，另一种是 `pip install supervisor`
+> 
 > 区别是 pip 安装的不会自动生成 `/etc/supervisor/supervisord.conf` 配置文件，需要手动生成，见后面的操作命令
 
 ### 下载本项目
@@ -40,6 +41,17 @@ echo_supervisord_conf > /etc/supervisor/supervisord.conf
 > supervisor 的默认监控 http://0.0.0.0:8000
 >
 > 只能管理本机的程序
+
+#### 修改配置文件中的本地服务器ip、登陆端口、用户名、密码信息，用于supervisor 的默认监控的登陆
+> /python/supervisor_flaskapp.conf
+```
+#web管理界面
+[inet_http_server]
+port = 0.0.0.0:8000
+username = admin
+password = admin
+```
+#### 运行
 ```
 /usr/local/bin/supervisord -c /python/supervisor_flaskapp.conf
 ```
