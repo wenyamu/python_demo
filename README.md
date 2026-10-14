@@ -104,11 +104,34 @@ files = /etc/supervisor/supervisord.conf /python/supervisor_conf/*.conf /python/
 
 flasktest.py
 > web程序文件，是用 python 写的 web 页的功能代码。类似于 php 写的 web 页 xxx.php 文件是一个意思。
+> 
 > 直接访问 http://0.0.0.0
+```
+from flask import Flask, render_template, url_for, request
+import pymysql
+app = Flask(__name__,
+      template_folder='/python/templates',
+      static_folder='/python/asset',
+      static_url_path="/",
+      )
+...
+...
+```
 
 gconf80.py
 > 作为启动 gunicorn 的配置文件，对 gunicorn 的监听端口，线程数等参数进行设置。
-
+```
+...
+...
+#debug = True # 调试模式运行
+daemon = False # 守护Gunicorn进程，默认False(即不让其在后台运行，而是使用supervisor管理进程)
+# True，表示代码更新时将被热载入（不用手动重启进程了）。如果是直接运行gunicorn命令，直接加参数 --reload 即可
+reload = True
+#绑定与Nginx通信的端口ipv4、ipv6
+bind = '0.0.0.0:80'
+...
+...
+```
 supervisor_conf/flask80.conf
 > 作为 supervisor 管理的子进程的配置文件，对 gunicorn 进程的一些管理。gunicorn 就是用来启动 flask web 程序的，示例如下。
 ```bash
@@ -123,6 +146,20 @@ autostart = true #在supervisord启动的时候也自动启动
 ```
 supervisor_flaskapp.conf
 > 作为启动 supervisor 时的主配置文件，主配置文件中会引入 flask80.conf 子配置文件。
+```bash
+...
+...
+[include]
+files = /etc/supervisor/supervisord.conf /python/supervisor_conf/*.conf /python/supervisor_monit/*.conf
+
+#web管理界面
+[inet_http_server]
+port = 0.0.0.0:8000
+username = admin
+password = admin
+...
+...
+```
 
 ### 附言
 > supervisor 命令
