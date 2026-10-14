@@ -18,7 +18,7 @@ app = Flask(__name__,
 def index_getenv():
     return os.getenv('ljs2') # gunicorn 配置文件中定义的变量
 
-# 字典形式
+# 字典形式，安装了 supervisor 的本机或远程服务器的ip、登陆端口、用户名、密码信息
 serverDict = {
     "pyweb1":{
         "host":"192.168.1.121",
