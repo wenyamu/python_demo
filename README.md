@@ -3,6 +3,9 @@ python flask gunicorn supervisor 演示文件
 
 搞懂 flask gunicorn supervisor 的作用和关系
 
+> 注意：supervisor 有两种安装方式，一种是 `apt install supervisor`，另一种是 `pip install supervisor`
+> 区别是 pip 安装的不会自动生成 `/etc/supervisor/supervisord.conf` 配置文件，需要手动生成，见后面的操作命令
+
 ### 下载本项目
 > 本项目的配置文件，都是基于 /python 目录创建的
 ```
@@ -25,7 +28,6 @@ gevent              26.7.0
 gunicorn            23.0.0
 PyMySQL             1.2.3
 supervisor          4.3.0
-
 ```
 
 ### 生成默认配置文件
