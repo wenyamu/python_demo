@@ -62,7 +62,7 @@ L  request time in decimal seconds
 p  process ID
 '''
 #日志目录必须事先存在，不然会出错
-accesslog = "/python/logs/gunicorn_access_443.log" #访问日志文件
-errorlog  = "/python/logs/gunicorn_error_443.log" #错误日志文件
+accesslog = "/python/logs/gunicorn_443_access.log" #访问日志文件
+errorlog  = "/python/logs/gunicorn_443_error.log" #错误日志文件
 
 #gconf443.py 内容结束
