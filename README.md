@@ -59,7 +59,7 @@ password = admin
 ### 启动自定义监控程序
 > 自定义的监控 http://0.0.0.0:5000
 >
-> 可以管理远程服务器的 supervisor 和 程序
+> 可以管理本机和远程服务器的 supervisor 和 程序
 ```
 # 先修改 /python/supervisor_monit/monit.py 中的字典形式的参数
 # 以下是安装了 supervisor 的本机和远程服务器的ip、登陆端口、用户名、密码信息
