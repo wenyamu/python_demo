@@ -57,7 +57,8 @@ D  request time in microseconds
 L  request time in decimal seconds
 p  process ID
 '''
-accesslog = "/python/logs/gunicorn_access_monit.log" #访问日志文件
-errorlog  = "/python/logs/gunicorn_error_monit.log" #错误日志文件
+#日志目录必须事先存在，不然会出错
+accesslog = "/python/logs/gunicorn_monit_access.log" #访问日志文件
+errorlog  = "/python/logs/gunicorn_monit_error.log" #错误日志文件
 
 #gconf_monit.py 内容结束
