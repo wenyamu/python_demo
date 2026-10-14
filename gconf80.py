@@ -57,6 +57,7 @@ D  request time in microseconds
 L  request time in decimal seconds
 p  process ID
 '''
+#日志目录必须事先存在，不然会出错
 accesslog = "/python/logs/gunicorn_access_80.log" #访问日志文件
 errorlog  = "/python/logs/gunicorn_error_80.log" #错误日志文件
 
