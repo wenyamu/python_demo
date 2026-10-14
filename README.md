@@ -6,7 +6,6 @@ python flask gunicorn supervisor 演示文件
 ### 下载本项目
 > 本项目的配置文件，都是基于 /python 目录创建的
 ```
-mkdir -p /python && \
 git clone https://github.com/wenyamu/python_demo.git /python
 ```
 
