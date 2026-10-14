@@ -184,12 +184,12 @@ supervisorctl reread && supervisorctl update
 
 #预读取配置(会检测配置文件，找出配置有改动的程序，并列出程序名)
 [root@localhost ~]# supervisorctl reread
-flask_app: changed
+flask_app80: changed
 
 #更新进程组:根据预读取的配置文件，启动新程序或重启配置有改动的程序
 #配置没有改动的程序不会受影响
 [root@localhost ~]# supervisorctl update
-flask_app: stopped
-flask_app: updated process group
+flask_app80: stopped
+flask_app80: updated process group
 [root@localhost ~]#
 ```
