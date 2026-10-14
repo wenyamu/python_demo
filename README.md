@@ -14,6 +14,20 @@ git clone https://github.com/wenyamu/python_demo.git /python
 apt install -y build-essential python3-dev libevent-dev && \
 python3 -m pip install gunicorn flask gevent pymysql supervisor
 ```
+
+### 查看软件版本
+```
+root@orangepizero3:~# python3 -m pip list
+Package             Version
+------------------- -----------
+Flask               3.1.3
+gevent              26.7.0
+gunicorn            23.0.0
+PyMySQL             1.2.3
+supervisor          4.3.0
+root@orangepizero3:~/diy# 
+```
+
 ### 生成默认配置文件
 ```
 mkdir -p /etc/supervisor && \
