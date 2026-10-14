@@ -3,6 +3,13 @@ python flask gunicorn supervisor 演示文件
 
 搞懂 flask gunicorn supervisor 的作用和关系
 
+### 下载本项目
+> 本项目的配置文件，都是基于 /python 目录创建的
+```
+mkdir -p /python && \
+git clone https://github.com/wenyamu/python_demo.git /python
+```
+
 ### 安装依赖项及软件
 ```
 apt install -y build-essential python3-dev libevent-dev && \
@@ -22,6 +29,30 @@ echo_supervisord_conf > /etc/supervisor/supervisord.conf
 
 ### 启动监控程序
 > http://0.0.0.0:5000
+
+```
+# 先修改 /python/supervisor_monit/monit.py 中的服务器ip
+serverDict = {
+    "pyweb1":{
+        "host":"192.168.1.121",
+        "port":"8000",
+        "user":"admin",
+        "passwd":"admin",
+    },
+    "pyweb2":{
+        "host":"192.168.1.121",
+        "port":"8001",
+        "user":"admin",
+        "passwd":"admin",
+    },
+    "pyweb3":{
+        "host":"192.168.1.121",
+        "port":"8002",
+        "user":"admin",
+        "passwd":"admin",
+    }
+}
+```
 ```
 # 当配置文件 gconf_monit.py 中未指定 chdir 时，
 # 需要进入 monit.py 所在的目录，不然会出现错误提示
@@ -29,8 +60,6 @@ echo_supervisord_conf > /etc/supervisor/supervisord.conf
 cd /python/supervisor_monit
 gunicorn -c /python/supervisor_monit/gconf_monit.py monit:app --preload
 ```
-
-
 
 ### 各文件的功能说明
 
