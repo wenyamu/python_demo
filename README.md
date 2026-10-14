@@ -22,15 +22,18 @@ echo_supervisord_conf > /etc/supervisor/supervisord.conf
 
 ### 启动 supervisor
 > supervisor 的默认监控 http://0.0.0.0:8000
+>
+> 只能管理本机的程序
 ```
 /usr/local/bin/supervisord -c /python/supervisor_flaskapp.conf
 ```
 
 ### 启动自定义监控程序
 > 自定义的监控 http://0.0.0.0:5000
-
+>
+> 可以管理远程服务器的 supervisor 和 程序
 ```
-# 先修改 /python/supervisor_monit/monit.py 中的服务器ip
+# 先修改 /python/supervisor_monit/monit.py 中的运行 supervisor 的远程服务器ip
 serverDict = {
     "pyweb1":{
         "host":"192.168.1.121",
