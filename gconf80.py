@@ -58,7 +58,7 @@ L  request time in decimal seconds
 p  process ID
 '''
 #日志目录必须事先存在，不然会出错
-accesslog = "/python/logs/gunicorn_access_80.log" #访问日志文件
-errorlog  = "/python/logs/gunicorn_error_80.log" #错误日志文件
+accesslog = "/python/logs/gunicorn_80_access.log" #访问日志文件
+errorlog  = "/python/logs/gunicorn_80_error.log" #错误日志文件
 
 #gconf80.py 内容结束
