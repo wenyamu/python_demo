@@ -25,7 +25,7 @@ gevent              26.7.0
 gunicorn            23.0.0
 PyMySQL             1.2.3
 supervisor          4.3.0
-root@orangepizero3:~/diy# 
+
 ```
 
 ### 生成默认配置文件
