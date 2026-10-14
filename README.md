@@ -14,6 +14,24 @@ mkdir -p /etc/supervisor && \
 echo_supervisord_conf > /etc/supervisor/supervisord.conf
 ```
 
+### 启动 supervisor
+> http://0.0.0.0:8000
+```
+/usr/local/bin/supervisord -c /python/supervisor_flaskapp.conf
+```
+
+### 启动监控程序
+> http://0.0.0.0:5000
+```
+# 当配置文件 gconf_monit.py 中未指定 chdir 时，
+# 需要进入 monit.py 所在的目录，不然会出现错误提示
+# ModuleNotFoundError: No module named 'monit'
+cd /python/supervisor_monit
+gunicorn -c /python/supervisor_monit/gconf_monit.py monit:app --preload
+```
+
+
+
 ### 各文件的功能说明
 
 flasktest.py
