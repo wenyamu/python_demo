@@ -68,6 +68,7 @@ gunicorn -c /python/supervisor_monit/gconf_monit.py monit:app --preload
 
 flasktest.py
 > web程序文件，是用 python 写的 web 页的功能代码。类似于 php 写的 web 页 xxx.php 文件是一个意思。
+> 直接访问 http://0.0.0.0
 
 gconf80.py
 > 作为启动 gunicorn 的配置文件，对 gunicorn 的监听端口，线程数等参数进行设置。
@@ -86,3 +87,36 @@ autostart = true #在supervisord启动的时候也自动启动
 ```
 supervisor_flaskapp.conf
 > 作为启动 supervisor 时的主配置文件，主配置文件中会引入 flask80.conf 子配置文件。
+
+### 附言
+> supervisor 命令
+```
+#启动、停止、重启应用、查看状态
+supervisorctl start flask_app
+supervisorctl stop flask_app
+supervisorctl stop all #停止全部
+supervisorctl restart flask_app # 重启，注意这里不会重新加载配置文件
+supervisorctl status flask_app
+supervisorctl status all
+
+#重启主进程 supervisord，重新加载配置文件，重新启动正在运行的所有程序
+# supervisord 进程的 pid 不会更新
+supervisorctl reload
+
+#终止supervisord进程和被supervisord管理的子进程
+#如果gunicorn配置文件中daemon = False，则也会终止gunicorn
+supervisorctl shutdown
+
+supervisorctl reread && supervisorctl update
+
+#预读取配置(会检测配置文件，找出配置有改动的程序，并列出程序名)
+[root@localhost ~]# supervisorctl reread
+flask_app: changed
+
+#更新进程组:根据预读取的配置文件，启动新程序或重启配置有改动的程序
+#配置没有改动的程序不会受影响
+[root@localhost ~]# supervisorctl update
+flask_app: stopped
+flask_app: updated process group
+[root@localhost ~]#
+```
