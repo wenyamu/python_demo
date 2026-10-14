@@ -84,12 +84,20 @@ serverDict = {
     }
 }
 ```
+#### 方法一：单独运行
 ```
 # 当配置文件 gconf_monit.py 中未指定 chdir 时，
 # 需要进入 monit.py 所在的目录，不然会出现错误提示
 # ModuleNotFoundError: No module named 'monit'
 cd /python/supervisor_monit
 gunicorn -c /python/supervisor_monit/gconf_monit.py monit:app --preload
+```
+
+#### 方法二：
+> 把配置文件 `/python/supervisor_monit/flask_monit.conf` 加入到主配置文件 `/python/supervisor_flaskapp.conf` 中, 如下：
+```
+[include]
+files = /etc/supervisor/supervisord.conf /python/supervisor_conf/*.conf /python/supervisor_monit/*.conf
 ```
 
 ### 各文件的功能说明
