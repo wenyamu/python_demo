@@ -36,19 +36,19 @@ echo_supervisord_conf > /etc/supervisor/supervisord.conf
 # 先修改 /python/supervisor_monit/monit.py 中的运行 supervisor 的远程服务器ip
 serverDict = {
     "pyweb1":{
-        "host":"192.168.1.121",
+        "host":"192.168.1.100",
         "port":"8000",
         "user":"admin",
         "passwd":"admin",
     },
     "pyweb2":{
-        "host":"192.168.1.121",
+        "host":"192.168.1.101",
         "port":"8001",
         "user":"admin",
         "passwd":"admin",
     },
     "pyweb3":{
-        "host":"192.168.1.121",
+        "host":"192.168.1.102",
         "port":"8002",
         "user":"admin",
         "passwd":"admin",
