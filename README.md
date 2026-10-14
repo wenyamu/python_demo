@@ -21,13 +21,13 @@ echo_supervisord_conf > /etc/supervisor/supervisord.conf
 ```
 
 ### 启动 supervisor
-> http://0.0.0.0:8000
+> supervisor 的默认监控 http://0.0.0.0:8000
 ```
 /usr/local/bin/supervisord -c /python/supervisor_flaskapp.conf
 ```
 
-### 启动监控程序
-> http://0.0.0.0:5000
+### 启动自定义监控程序
+> 自定义的监控 http://0.0.0.0:5000
 
 ```
 # 先修改 /python/supervisor_monit/monit.py 中的服务器ip
