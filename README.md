@@ -33,7 +33,8 @@ echo_supervisord_conf > /etc/supervisor/supervisord.conf
 >
 > 可以管理远程服务器的 supervisor 和 程序
 ```
-# 先修改 /python/supervisor_monit/monit.py 中的运行 supervisor 的远程服务器ip
+# 先修改 /python/supervisor_monit/monit.py 中的字典形式的参数
+# 以下是安装了 supervisor 的本机或远程服务器的ip、登陆端口、用户名、密码信息
 serverDict = {
     "pyweb1":{
         "host":"192.168.1.100",
