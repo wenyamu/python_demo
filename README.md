@@ -108,11 +108,11 @@ supervisor_flaskapp.conf
 > supervisor 命令
 ```
 #启动、停止、重启应用、查看状态
-supervisorctl start flask_app
-supervisorctl stop flask_app
+supervisorctl start flask_app80
+supervisorctl stop flask_app443
 supervisorctl stop all #停止全部
-supervisorctl restart flask_app # 重启，注意这里不会重新加载配置文件
-supervisorctl status flask_app
+supervisorctl restart flask_app80 # 重启，注意这里不会重新加载配置文件
+supervisorctl status flask_app80
 supervisorctl status all
 
 #重启主进程 supervisord，重新加载配置文件，重新启动正在运行的所有程序
