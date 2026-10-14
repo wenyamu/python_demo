@@ -93,7 +93,7 @@ cd /python/supervisor_monit
 gunicorn -c /python/supervisor_monit/gconf_monit.py monit:app --preload
 ```
 
-#### 方法二：
+#### 方法二：作为 supervisor 子程序运行
 > 把配置文件 `/python/supervisor_monit/flask_monit.conf` 加入到主配置文件 `/python/supervisor_flaskapp.conf` 中, 如下：
 ```
 [include]
