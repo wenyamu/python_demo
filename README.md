@@ -3,6 +3,17 @@ python flask gunicorn supervisor 演示文件
 
 搞懂 flask gunicorn supervisor 的作用和关系
 
+### 安装依赖项及软件
+```
+apt install -y build-essential python3-dev libevent-dev && \
+python3 -m pip install gunicorn flask gevent pymysql supervisor
+```
+### 生成默认配置文件
+```
+mkdir -p /etc/supervisor && \
+echo_supervisord_conf > /etc/supervisor/supervisord.conf
+```
+
 ### 各文件的功能说明
 
 flasktest.py
