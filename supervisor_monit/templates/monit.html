@@ -1,39 +1,118 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="refresh" content="30;url={{ url_for('index') }}">
-    <title>serverList</title>
+    <!-- <meta http-equiv="refresh" content="30;url={{ url_for('index') }}"> -->
+    <title>Server List - Supervisor Monitor</title>
     <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/css.css') }}">
+    
 </head>
 <body>
-{{ envtest }}
-<h1>supervisor列表 </h1>
-<ul>
-{% for sn in sdict %}
-    <h3>{{ sn }}@{{ sdict[sn]["host"] }}:{{ sdict[sn]["port"] }}--<a href="{{ url_for('restartSupervisor', title = sn) }}">重启Supervisor</a></h3>
-    
-    {% if funAllInfo(sn) == [] %}
-    <li>此服务器不通，请检查设置！</li>
-    {% else %}
-    <li>
-        <a href="{{ url_for('index_one', method = 'supervisor.stopAllProcesses', name = '', title = sn) }}">停止所有进程</a>
+    <p class="env-test">Env Test: {{ envtest }}</p>
+    <h1>Supervisor 列表</h1>
 
-        <a href="{{ url_for('index_one', method = 'supervisor.startAllProcesses', name = '', title = sn) }}">启动所有进程</a>
+    <div class="server-container">
+    {% for sn, info in sdict.items() %}
+        <div class="server-block">
+            <div class="server-header">
+                <h3>{{ sn }} @ {{ info.host }}:{{ info.port }}</h3>
+                <a href="{{ url_for('restartSupervisor', title=sn) }}" class="btn btn-restart-supervisor">重启Supervisor</a>
+            </div>
 
-        <a href="{{ url_for('index_restartAll', title = sn) }}">重启所有进程</a>
-    </li>
-    {% for snObj in funAllInfo(sn) %}
-    <li>{{ snObj["name"] }}--{{ snObj["statename"] }}--{{ snObj["description"] }}
-        <a href="{{ url_for('index_one', method = 'supervisor.stopProcess', name = snObj['name'], title = sn) }}">停止进程</a>
-        <a href="{{ url_for('index_one', method = 'supervisor.startProcess', name = snObj['name'], title = sn) }}">启动进程</a>
-        <a href="{{ url_for('index_restartOne', name = snObj['name'], title = sn) }}">重启进程</a>
-    </li>
+            {% set processes = funAllInfo(sn) %}
+            <!-- {% print(processes) %} -->
+            {% if not processes %}
+                <p class="error-tip">此服务器不通，请检查设置！</p>
+            {% else %}
+                <div class="server-actions">
+                    <a href="{{ url_for('index_one', method='supervisor.stopAllProcesses', name='', title=sn) }}" class="btn btn-stop-all">停止所有进程</a>
+                    <a href="{{ url_for('index_one', method='supervisor.startAllProcesses', name='', title=sn) }}" class="btn btn-start-all">启动所有进程</a>
+                    <a href="{{ url_for('index_restartAll', title=sn) }}" class="btn btn-restart-all">重启所有进程</a>
+                </div>
+                
+                <!-- 未分组区域 -->
+                <ul class="process-list">
+                {% for proc in processes["ungrouped"] %}
+                <!-- {% print(proc) %} -->
+                    <li class="process-item">
+                        <div class="process-info">
+                            <span class="proc-name">{{ proc.name }}</span>
+                            <span class="proc-status {{ 'status-running' if proc.statename == 'RUNNING' else 'status-stopped' }}">{{ proc.statename }}</span>
+                            <span class="proc-desc">描述: {{ proc.description }}</span>
+                        </div>
+                        <div class="process-ops">
+                            <a href="{{ url_for('index_one', method='supervisor.stopProcess', name=proc.name, title=sn) }}" class="btn btn-stop">停止</a>
+                            <a href="{{ url_for('index_one', method='supervisor.startProcess', name=proc.name, title=sn) }}" class="btn btn-start">启动</a>
+                            <a href="{{ url_for('index_restartOne', name=proc.name, title=sn) }}" class="btn btn-restart">重启</a>
+                        </div>
+                    </li>
+                {% endfor %}
+                </ul>
+                
+                {# 渲染所有分组进程，带折叠功能 #}
+                {% for proc in processes["groups"] %}
+                <div class="group-card">
+                    <!-- 分组标题栏，点击即可折叠展开 -->
+                    <div class="group-header-bar" onclick="toggleGroup(this)">
+                        <div class="group-title">
+                            <span class="fold-icon">▼</span>
+                            📁 {{ proc.group_name }}
+                        </div>
+                        <div class="process-ops">
+                            <a href="{{ url_for('index_one', method='supervisor.stopProcessGroup', name=proc.group_name, title=sn) }}" class="btn btn-stop" onclick="event.stopPropagation()">停止组</a>
+                            <a href="{{ url_for('index_one', method='supervisor.startProcessGroup', name=proc.group_name, title=sn) }}" class="btn btn-start" onclick="event.stopPropagation()">启动组</a>
+                            <a href="{{ url_for('index_restartGroup', name=proc.group_name, title=sn) }}" class="btn btn-restart" onclick="event.stopPropagation()">重启组</a>
+                        </div>
+                    </div>
+                    <!-- 组内进程容器，默认展开 -->
+                    <div class="group-process-container">
+                        <ul class="process-list">
+                        {% for sub_proc in proc.processes %}
+                            {# 操作组内的程序时，要把组名与程序名用冒号连接，变成 组名:程序名 #}
+                            {% set full_name = sub_proc.group ~ ':' ~ sub_proc.name %}
+                            <li class="process-item">
+                                <div class="process-info">
+                                    <span class="proc-name">{{ sub_proc.name }}</span>
+                                    <span class="proc-status {{ 'status-running' if sub_proc.statename == 'RUNNING' else 'status-stopped' }}">{{ sub_proc.statename }}</span>
+                                    <span class="proc-desc">描述: {{ sub_proc.description }}</span>
+                                </div>
+                                <div class="process-ops">
+                                    <a href="{{ url_for('index_one', method='supervisor.stopProcess', name=full_name, title=sn) }}" class="btn btn-stop">停止</a>
+                                    <a href="{{ url_for('index_one', method='supervisor.startProcess', name=full_name, title=sn) }}" class="btn btn-start">启动</a>
+                                    <a href="{{ url_for('index_restartOne', name=full_name, title=sn) }}" class="btn btn-restart">重启</a>
+                                </div>
+                            </li>
+                        {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+                {% endfor %}
+                
+            {% endif %}
+        </div>
     {% endfor %}
+    </div>
 
-    {% endif %}
-    <hr/>
-{% endfor %}
-</ul>
+    <!-- 原生JS折叠逻辑，无需任何外部依赖 -->
+    <script>
+        function toggleGroup(headerBar) {
+            // 获取当前分组对应的进程容器
+            const container = headerBar.nextElementSibling;
+            // 获取折叠箭头图标
+            const foldIcon = headerBar.querySelector('.fold-icon');
+
+            if (container.classList.contains('hidden')) {
+                // 展开操作
+                container.classList.remove('hidden');
+                foldIcon.classList.remove('collapsed');
+                foldIcon.textContent = '▼';
+            } else {
+                // 折叠操作
+                container.classList.add('hidden');
+                foldIcon.classList.add('collapsed');
+                foldIcon.textContent = '▶';
+            }
+        }
+    </script>
 </body>
 </html>
