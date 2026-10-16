@@ -143,6 +143,11 @@ command = /usr/local/bin/gunicorn -c /python/gconf80.py flasktest:app
 autostart = true #在supervisord启动的时候也自动启动
 ...
 ...
+#把多个进程 program 组成一个组 myapp_group
+[group:myapp_group]
+programs=flask_app80,program1,program2
+...
+...
 ```
 supervisor_flaskapp.conf
 > 作为启动 supervisor 时的主配置文件，主配置文件中会引入 flask80.conf 子配置文件。
@@ -171,6 +176,9 @@ supervisorctl stop all #停止全部
 supervisorctl restart flask_app80 # 重启，注意这里不会重新加载配置文件
 supervisorctl status flask_app80
 supervisorctl status all
+
+#对组的操作, 后面必须加上:(冒号)，不然会认为是 program
+supervisorctl start myapp_group:
 
 #重启主进程 supervisord，重新加载配置文件，重新启动正在运行的所有程序
 # supervisord 进程的 pid 不会更新
