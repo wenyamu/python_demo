@@ -35,9 +35,9 @@ worker_class = 'gevent'
 '''
 # flask.py 中调用变量
 import os
-os.getenv('ljs1')
+os.getenv('message')
 '''
-raw_env=["ljs1=111","ljs2=bbb"]
+raw_env=["message=测试...","message2=hahaha"]
 
 loglevel = 'info' #日志级别，这个日志级别指的是错误日志的级别，而访问日志的级别无法设置
 access_log_format = '%(t)s %(p)s %(h)s "%(r)s" %(s)s %(L)s %(b)s %(f)s" "%(a)s"'#设置gunicorn访问日志格式，错误日志无法设置
