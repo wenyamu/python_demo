@@ -89,12 +89,13 @@ h1 {
     list-style: none;
     display: grid;
     gap: 12px;
+    padding: 0 0 12px 0;
 }
 .process-item {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 14px 16px;
+    padding: 10px 12px;
     background-color: #f8f9fa;
     border-radius: 8px;
 }
