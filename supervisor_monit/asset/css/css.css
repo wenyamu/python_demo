@@ -1,3 +1,205 @@
-.ljs{
-    width:100px
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-size: 16px;
+}
+body {
+    padding: 30px;
+    background-color: #f5f7fa;
+    font-family: "Microsoft Yahei", sans-serif;
+}
+h1 {
+    font-size: 28px;
+    margin-bottom: 25px;
+    color: #2c3e50;
+    border-left: 5px solid #3498db;
+    padding-left: 12px;
+}
+.env-test {
+    background: #ecf0f1;
+    padding: 10px 15px;
+    border-radius: 6px;
+    margin-bottom: 25px;
+    font-size: 15px;
+    color: #7f8c8d;
+}
+.server-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+.server-block {
+    background: #ffffff;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+}
+.server-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #eee;
+    margin-bottom: 15px;
+}
+.server-header h3 {
+    font-size: 20px;
+    color: #2c3e50;
+}
+.btn {
+    padding: 8px 16px;
+    border-radius: 5px;
+    text-decoration: none;
+    font-size: 15px;
+    margin-left: 10px;
+    border: none;
+    cursor: pointer;
+}
+.btn-restart-supervisor {
+    background-color: #f39c12;
+    color: #fff;
+}
+.server-actions {
+    margin-bottom: 18px;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.btn-stop-all {
+    background-color: #e74c3c;
+    color: #fff;
+}
+.btn-start-all {
+    background-color: #27ae60;
+    color: #fff;
+}
+.btn-restart-all {
+    background-color: #3498db;
+    color: #fff;
+}
+.error-tip {
+    color: #e74c3c;
+    font-size: 16px;
+    padding: 12px;
+    background-color: #fdecea;
+    border-radius: 6px;
+}
+.process-list {
+    list-style: none;
+    display: grid;
+    gap: 12px;
+}
+.process-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+}
+.process-info {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+.proc-name {
+    font-size: 17px;
+    font-weight: bold;
+    color: #2c3e50;
+    min-width: 180px;
+}
+.proc-status {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 500;
+}
+.status-running {
+    background-color: #d4edda;
+    color: #155724;
+}
+.status-stopped {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+.proc-desc {
+    color: #6c757d;
+    font-size: 15px;
+}
+.process-ops {
+    display: flex;
+    gap: 8px;
+}
+.btn-stop {
+    background-color: #e74c3c;
+    color: #fff;
+    font-size: 14px;
+    padding: 6px 12px;
+}
+.btn-start {
+    background-color: #27ae60;
+    color: #fff;
+    font-size: 14px;
+    padding: 6px 12px;
+}
+.btn-restart {
+    background-color: #3498db;
+    color: #fff;
+    font-size: 14px;
+    padding: 6px 12px;
+}
+
+/* 新增分组折叠样式，完全适配原有视觉风格 */
+.group-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    overflow: hidden;
+}
+.group-header-bar {
+    background-color: #eff6ff;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 1px solid #e5e7eb;
+}
+.group-header-bar:hover {
+    background-color: #dbeafe;
+}
+.group-title {
+    font-size: 17px;
+    font-weight: bold;
+    color: #1d4ed8;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.fold-icon {
+    display: inline-block;
+    transition: transform 0.2s ease;
+    font-size: 18px;
+}
+.fold-icon.collapsed {
+    transform: rotate(-90deg);
+}
+.group-process-container {
+    background-color: #f9fafb;
+    padding: 12px 18px;
+    display: block;
+    transition: all 0.3s ease;
+}
+.group-process-container.hidden {
+    display: none;
+}
+.ungroup-title {
+    font-size: 16px;
+    font-weight: 500;
+    color: #6b7280;
+    margin: 20px 0 10px 0;
+    padding-left: 8px;
+    border-left: 3px solid #d1d5db;
 }
