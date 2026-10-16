@@ -180,6 +180,9 @@ supervisorctl status all
 #对组的操作, 后面必须加上:(冒号)，不然会认为是 program
 supervisorctl start myapp_group:
 
+#操作组内的程序时，要把组名与程序名用冒号连接，变成 组名:程序名
+supervisorctl start myapp_group:flask_app80
+
 #重启主进程 supervisord，重新加载配置文件，重新启动正在运行的所有程序
 # supervisord 进程的 pid 不会更新
 supervisorctl reload
