@@ -17,7 +17,7 @@ app = Flask(__name__,
 
 @app.route("/getenv")
 def index_getenv():
-    return os.getenv('message') # gunicorn 配置文件中定义的变量
+    return os.getenv('prompt1') # gunicorn 配置文件中定义的变量
 
 # 字典形式，安装了 supervisor 的本机或远程服务器的ip、登陆端口、用户名、密码信息
 serverDict = {
@@ -124,16 +124,17 @@ def getAllInfoTimeOut(n):
 
 @app.route("/")
 def index():
-    return render_template("monit.html", envtest=os.getenv('message'), sdict=serverDict, funAllInfo=getAllInfoTimeOut)
+    return render_template("monit.html", envtest=os.getenv('prompt1'), sdict=serverDict, funAllInfo=getAllInfoTimeOut)#渲染模板页面
 
 # 重启 supervisor
 @app.route("/restartSupervisor")
 def restartSupervisor():
     # 自定义函数获取rpc地址
-    title = request.args['title']
+    title = request.args['title'] # pyweb1
     url = getUrlRpc(title,serverDict)
     server = ServerProxy(url)
     server.supervisor.restart()
+    # 执行跳转到 /restartSupervisor?message=restartSupervisor_pyweb1
     return redirect(url_for('index',message="restartSupervisor_"+title))
 
 # 开始或停止某个进程
@@ -204,34 +205,63 @@ def index_restartGroup():
     server.system.multicall(calls)
     return redirect(url_for('index'))
 
-'''
-# //渲染页面，含有执行python函数的按钮
-@app.route('/ajaxpy')
-def ajax_py():
-    return render_template('fun/fun.html')
 
-# //后台执行，ajax调用不会刷新页面
-@app.route('/background_process_route', methods = ['GET', 'POST'])
+'''
+
+@app.route("/methods.html")
+def get_methods():
+    
+    url = "http://admin:admin@192.168.1.121:8000/RPC2"
+    server = ServerProxy(url)
+    Methods = server.system.listMethods()
+    
+    return Methods
+
+@app.route("/allconfiginfo.html")
+def get_allConfigInfo():
+    
+    url = "http://admin:admin@192.168.1.121:8000/RPC2"
+    server = ServerProxy(url)
+    allConfigInfo = server.supervisor.getAllConfigInfo()
+    
+    return allConfigInfo
+
+
+# 多重调用，比如：先停止，再启动，这时需要使用 server.system.multicall(calls)
+# 如果只是单独停止，可以直接使用 server.supervisor.stopProcess(name)
+@app.route('/process_route', methods = ['GET', 'POST'])
 def background_process():
-    url = "http://admin:admin@8.210.236.200:5002/RPC2"
+    url = "http://admin:admin@192.168.1.121:8000/RPC2"
     server = ServerProxy(url)
     server.supervisor.stopProcess("flask_app443")
     return redirect(url_for('index'))
 
+
+@app.route('/test123')
+def test():
+    return '这是测试页面' +"<br/>"+ request.url +"<br/>"+ request.base_url +"<br/>"+ request.host_url+"<br/>"+request.host+"<br/>"+request.path+"<br/>"+request.full_path+"<br/>"+request.url_root
+
+@app.route('/demo')
+def demo():
+    # 生成包含查询参数的 URL
+    url_with_params = url_for('test', name='tom', age='12') # /test123?name=tom&age=12
+    
+    # 生成纯净的 URL
+    url_clean = url_for('test') # /test123
+    
+    # 拼接并返回 HTML 内容
+    html_content = f"{url_with_params}<br/>{url_clean}"
+    return html_content
+
+
 @app.route("/urlfor")
 def urlfor():
-    # return request.args['name']
-    #return request.url +"<br/>"+ request.base_url +"<br/>"+ request.host_url+"<br/>"+request.host+"<br/>"+request.path+"<br/>"+request.full_path+"<br/>"+request.url_root
-    #return url_for('test')
-    # return url_for('test', next='a', nexta='aa')+"<br/>"+url_for('test')
-    
-    a = request.args.get('a')
-    b = request.args.get('b')
-    # return a
+    # 访问 /urlfor?a=1&b=2 返回 {"k":["1","2"]}
+    a = request.args.get('a') #a=1没有时，返回 null
+    b = request.args['b'] #b=2必须要有, 不然报错 Bad Request
     return jsonify({'k': [a, b]})
+
 '''
-
-
 
 #以下命令，只有在使用 python this.py 才起作用
 if __name__=='__main__':
