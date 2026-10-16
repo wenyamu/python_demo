@@ -17,7 +17,7 @@ app = Flask(__name__,
 
 @app.route("/getenv")
 def index_getenv():
-    return os.getenv('ljs2') # gunicorn 配置文件中定义的变量
+    return os.getenv('message') # gunicorn 配置文件中定义的变量
 
 # 字典形式，安装了 supervisor 的本机或远程服务器的ip、登陆端口、用户名、密码信息
 serverDict = {
@@ -124,7 +124,7 @@ def getAllInfoTimeOut(n):
 
 @app.route("/")
 def index():
-    return render_template("monit.html", envtest=os.getenv('ljs2'), sdict=serverDict, funAllInfo=getAllInfoTimeOut)
+    return render_template("monit.html", envtest=os.getenv('message'), sdict=serverDict, funAllInfo=getAllInfoTimeOut)
 
 # 重启 supervisor
 @app.route("/restartSupervisor")
