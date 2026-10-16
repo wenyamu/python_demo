@@ -55,7 +55,7 @@
                     <!-- 分组标题栏，点击即可折叠展开 -->
                     <div class="group-header-bar" onclick="toggleGroup(this)">
                         <div class="group-title">
-                            <span class="fold-icon">▼</span>
+                            <span class="fold-icon">-</span>
                             📁 {{ proc.group_name }}
                         </div>
                         <div class="process-ops">
@@ -105,12 +105,12 @@
                 // 展开操作
                 container.classList.remove('hidden');
                 foldIcon.classList.remove('collapsed');
-                foldIcon.textContent = '▼';
+                foldIcon.textContent = '-';
             } else {
                 // 折叠操作
                 container.classList.add('hidden');
                 foldIcon.classList.add('collapsed');
-                foldIcon.textContent = '▶';
+                foldIcon.textContent = '+';
             }
         }
     </script>
