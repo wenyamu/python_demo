@@ -1,6 +1,7 @@
 
 ## 题外话
 > Python 脚本 supervisord 是一个被许多人用来管理进程的强大工具。该工具要求目标系统必须安装庞大的 Python 环境。以下项目是用 GO 语言写的一个 supervisord 非常适合未安装Python的环境。
+
 > 它支持 depends_on 配置项，监督命令启动依赖。如果程序A依赖于程序B、C，则程序B、C将在程序A之前启动。
 ```
 https://github.com/ochinchina/supervisord
