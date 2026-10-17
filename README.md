@@ -66,8 +66,9 @@ username = admin
 password = admin
 ```
 #### 运行
+> 以北京时间为准
 ```
-/usr/local/bin/supervisord -c /python/supervisor_flaskapp.conf
+TZ=Asia/Shanghai /usr/local/bin/supervisord -c /python/supervisor_flaskapp.conf
 ```
 
 ### 启动自定义监控程序
