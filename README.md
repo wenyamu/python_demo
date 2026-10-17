@@ -266,6 +266,18 @@ autostart = false
 dependent_startup=true
 dependent_startup_wait_for=app2:running
 ```
+```
+dependent_startup
+将此服务标记为由 supervisord-dependent-startup 处理。对于所有依赖其他服务或被其他服务依赖的服务，必须将 dependent_startup 设置为 true
+
+dependent_startup_wait_for
+要使名为 child 的服务依赖于服务 parent, 这样设置 dependent_startup_wait_for=parent:running
+多个依赖项由空格分隔。要使名为child的服务依赖于parent1和parent2服务，这样设置 dependent_startup_wait_for=parent1:running parent2:running
+```
+
+
+
+
 > 并且还要设置事件监听器
 > 
 > 注意：监听模块指定的配置文件，就是启动 supervisor 时的配置文件，这里一定要注意，虽然有点难以理解，但是就是这样的
