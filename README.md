@@ -241,3 +241,35 @@ flask_app80: updated process group
 # 注意：reread 只是让 supervisord 知道谁配置变了，而 update 才是真正去执行变更的动作。
 supervisorctl reread 操作不是必须的，可以直接执行 supervisorctl update 去执行变更的动作
 ```
+
+### 插件
+>依赖启动插件 supervisord-dependent-startup 的使用
+>
+> 如果 程序 app2 需要在 app1 正常运行之后启动，
+>
+> 程序 app3 需要在 app2 正常运行之后启动，那么就如下设置
+>
+> app1 > app2 > app3
+
+```
+[program:app1]
+autostart = false
+dependent_startup=true
+
+[program:app2]
+autostart = false
+dependent_startup=true
+dependent_startup_wait_for=app1:running
+
+[program:app3]
+autostart = false
+dependent_startup=true
+dependent_startup_wait_for=app2:running
+```
+
+
+
+
+
+
+
