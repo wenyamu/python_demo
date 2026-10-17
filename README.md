@@ -266,7 +266,23 @@ autostart = false
 dependent_startup=true
 dependent_startup_wait_for=app2:running
 ```
-
+> 并且还要设置事件监听器
+> 
+> 注意：监听模块指定的配置文件，就是启动 supervisor 时的配置文件，这里一定要注意，虽然有点难以理解，但是就是这样的
+```
+# 事件监听器, 用于启动依赖
+[eventlistener:dependent_monitor]
+#以模块的方式运行，指定配置文件
+command=python3 -m supervisord_dependent_startup -c /python/supervisor_flaskapp.conf
+stderr_logfile=/tmp/%(program_name)s-err.log
+events=PROCESS_STATE
+autostart=true
+; The following settings are necessary to ensure the supervisord_dependent_startup
+; process exits with EXITED when successfull, and FATAL when an error occured
+autorestart=unexpected
+startretries=0
+exitcodes=0,3
+```
 
 
 
