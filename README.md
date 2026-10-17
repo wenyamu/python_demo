@@ -205,7 +205,7 @@ supervisorctl reload
 #如果gunicorn配置文件中daemon = False，则也会终止gunicorn
 supervisorctl shutdown
 
-#reread 只是让 supervisord 知道配置变了，而 update 才是真正去执行变更的动作。
+#预读取配置 和 应用配置项
 supervisorctl reread && supervisorctl update
 
 #预读取配置(会检测配置文件，找出配置有改动的程序，并列出程序名)
@@ -222,4 +222,7 @@ flask_app80: changed
 flask_app80: stopped
 flask_app80: updated process group
 [root@localhost ~]#
+
+# 注意：reread 只是让 supervisord 知道谁配置变了，而 update 才是真正去执行变更的动作。
+supervisorctl reread 操作不是必须的，可以直接执行 supervisorctl update 去执行变更的动作
 ```
