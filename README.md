@@ -243,13 +243,12 @@ supervisorctl reread 操作不是必须的，可以直接执行 supervisorctl up
 ```
 
 ### 插件
->依赖启动插件 supervisord-dependent-startup 的使用
+#### 依赖启动插件 supervisord-dependent-startup 的使用
 >
-> 如果 程序 app2 需要在 app1 正常运行之后启动，
+> 举个例子：app1 > app2 > app3
 >
-> 程序 app3 需要在 app2 正常运行之后启动，那么就如下设置
+> 程序 app3 需要在 app2 正常运行之后启动，程序 app2 需要在 app1 正常运行之后启动，那么就如下设置
 >
-> app1 > app2 > app3
 > 注意：对于所有依赖其他程序或被其他程序依赖的，autostart 必须都设置为 false, 意思就是把启动权由supervisor交给插件控制
 ```
 [program:app1]
@@ -266,20 +265,18 @@ autostart = false
 dependent_startup=true
 dependent_startup_wait_for=app2:running
 ```
+#### 配置项使用说明
 ```
 dependent_startup
 将此服务标记为由 supervisord-dependent-startup 处理。对于所有依赖其他服务或被其他服务依赖的服务，必须将 dependent_startup 设置为 true
 
 dependent_startup_wait_for
-要使名为 child 的服务依赖于服务 parent, 这样设置 dependent_startup_wait_for=parent:running
-多个依赖项由空格分隔。要使名为child的服务依赖于parent1和parent2服务，这样设置 dependent_startup_wait_for=parent1:running parent2:running
+1、要使名为 child 的服务依赖于服务 parent, 这样设置 dependent_startup_wait_for=parent:running
+2、多个依赖项由空格分隔。要使名为child的服务依赖于parent1和parent2服务，这样设置 dependent_startup_wait_for=parent1:running parent2:running
+事件包括：starting, running, backoff, stopping, exited, fatal
 ```
 
-
-
-
-> 并且还要设置事件监听器
-> 
+#### 设置事件监听器
 > 注意：监听模块指定的配置文件，就是启动 supervisor 时的配置文件，这里一定要注意，虽然有点难以理解，但是就是这样的
 ```
 # 事件监听器, 用于启动依赖
