@@ -143,9 +143,16 @@ command = /usr/local/bin/gunicorn -c /python/gconf80.py flasktest:app
 autostart = true #在supervisord启动的时候也自动启动
 ...
 ...
+[program:program1]
+...
+...
+command = python3 xxx.py
+autostart = true #在supervisord启动的时候也自动启动
+...
+...
 #把多个进程 program 组成一个组 myapp_group
 [group:myapp_group]
-programs=flask_app80,program1,program2
+programs=program1,program2,program3
 ...
 ...
 ```
@@ -181,7 +188,14 @@ supervisorctl status all
 supervisorctl start myapp_group:
 
 #操作组内的程序时，要把组名与程序名用冒号连接，变成 组名:程序名
-supervisorctl start myapp_group:flask_app80
+supervisorctl start myapp_group:program1
+
+root@orangepizero3:~# supervisorctl restart program1
+program1: ERROR (no such process)
+program1: ERROR (no such process)
+root@orangepizero3:~# supervisorctl restart myapp_group:program1
+myapp_group:program1: stopped
+myapp_group:program1: started
 
 #重启主进程 supervisord，重新加载配置文件，重新启动正在运行的所有程序
 # supervisord 进程的 pid 不会更新
