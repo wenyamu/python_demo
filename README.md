@@ -250,7 +250,7 @@ supervisorctl reread 操作不是必须的，可以直接执行 supervisorctl up
 > 程序 app3 需要在 app2 正常运行之后启动，那么就如下设置
 >
 > app1 > app2 > app3
-
+> 注意：对于所有依赖其他程序或被其他程序依赖的，autostart 必须都设置为 false, 意思就是把启动权由supervisor交给插件控制
 ```
 [program:app1]
 autostart = false
@@ -295,9 +295,4 @@ autorestart=unexpected
 startretries=0
 exitcodes=0,3
 ```
-
-
-
-
-
 
