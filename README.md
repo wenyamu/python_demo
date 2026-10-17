@@ -10,6 +10,13 @@ https://github.com/ochinchina/supervisord
 ```
 
 ## 前言，本项目最初的目的，搞懂 python flask gunicorn supervisor 的作用和关系
+> 如果想让 supervisor 支持 依赖启动，可以安装以下插件
+>
+> `https://github.com/bendikro/supervisord-dependent-startup`
+> 
+> `python3 -m pip install supervisord-dependent-startup`
+>
+> 或者 `pip install -e git+https://github.com/bendikro/supervisord-dependent-startup.git#egg=supervisord-dependent-startup`
 
 > 注意：supervisor 有两种安装方式，一种是 `apt install supervisor`，另一种是 `pip install supervisor`
 > 
