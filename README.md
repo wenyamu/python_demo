@@ -9,7 +9,7 @@
 https://github.com/ochinchina/supervisord
 ```
 
-搞懂 python flask gunicorn supervisor 的作用和关系
+## 前言，本项目最初的目的，搞懂 python flask gunicorn supervisor 的作用和关系
 
 > 注意：supervisor 有两种安装方式，一种是 `apt install supervisor`，另一种是 `pip install supervisor`
 > 
