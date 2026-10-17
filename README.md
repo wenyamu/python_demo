@@ -18,10 +18,6 @@ https://github.com/ochinchina/supervisord
 >
 > 或者 `pip install -e git+https://github.com/bendikro/supervisord-dependent-startup.git#egg=supervisord-dependent-startup`
 
-> 注意：supervisor 有两种安装方式，一种是 `apt install supervisor`，另一种是 `pip install supervisor`
-> 
-> 区别是 pip 安装的不会自动生成 `/etc/supervisor/supervisord.conf` 配置文件，需要手动生成，见后面的操作命令
-
 ### 下载本项目
 > 本项目的配置文件，都是基于 /python 目录创建的
 ```
@@ -29,6 +25,9 @@ git clone https://github.com/wenyamu/python_demo.git /python
 ```
 
 ### 安装依赖项及软件
+> 注意：supervisor 有两种安装方式，一种是 `apt install supervisor`，另一种是 `pip install supervisor`
+> 
+> 区别是 pip 安装的不会自动生成 `/etc/supervisor/supervisord.conf` 配置文件，需要手动生成，见后面的操作命令
 ```
 apt install -y build-essential python3-dev libevent-dev && \
 python3 -m pip install gunicorn flask gevent pymysql supervisor
