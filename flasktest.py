@@ -14,21 +14,25 @@ app = Flask(__name__,
 
 # static_url_path 访问静态文件的路由设置，可以配合static_folder使用，例如：当static_url_path参数值为"/aaa"时，可以直接通过xxx.com/aaa/x.jpg 进行访问，此时static_folder的值仅做为存放目录，不作为url访问
 
+@app.route('/webrtc-player1')
+def index_webrtc1():
+  return render_template('webrtc-player1.html', title='MediaMTX WebRTC', info="flask web app")
+
+@app.route('/webrtc-player2')
+def index_webrtc2():
+  return render_template('webrtc-player2.html', title='MediaMTX WebRTC', info="flask web app")
+
+@app.route("/temp")
+def index_a():
+  data = [{"name":"menghuiguli","age":"28"},{"name":"lisi","age":"22"},{"name":"wangwu","age":"40"},{"name":"zhaoliu","age":"18"}]
+  return render_template("page.html",data=data)
+
 @app.route("/url_for")
 def url_for_a():
   #return request.args['name']
   return request.url +"<br/>"+ request.base_url +"<br/>"+ request.host_url+"<br/>"+request.host+"<br/>"+request.path+"<br/>"+request.full_path+"<br/>"+request.url_root
   #return url_for('index')
   #return url_for('index_a', next='a', nexta='aa')+"<br/>"+url_for('index')+"<br/>"+url_for('pym222', home_id='a', nexta='aa')
-
-@app.route("/jjj")
-def index_a():
-  data = [{"name":"menghuiguli","age":"28"},{"name":"lisi","age":"22"},{"name":"wangwu","age":"40"},{"name":"zhaoliu","age":"18"}]
-  return render_template("page.html",data=data)
-  
-@app.route('/')
-def index():
-  return render_template('index.html', title='python',info="flask web app")
 
 @app.route("/pym2/<home_id>")
 def pym222(home_id):
