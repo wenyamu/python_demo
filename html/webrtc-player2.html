@@ -38,8 +38,8 @@ button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .grid{display:grid;grid-template-columns:minmax(0,2.05fr) minmax(0,1fr);gap:14px}
 @media(max-width:1000px){.grid{grid-template-columns:1fr}}
 .panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:14px}
-.video-wrap{position:relative;background:#000;border-radius:14px;overflow:hidden;aspect-ratio:16/9;border:1px solid var(--border)}
-video{width:100%;height:100%;display:block;object-fit:contain;background:#000}
+.video-wrap{position:relative;border-radius:14px;overflow:hidden;aspect-ratio:16/9;}
+video{width:100%;height:100%;display:block;object-fit:contain;}
 .overlay{position:absolute;left:10px;top:10px;font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#4ade80;
   background:rgba(0,0,0,.5);padding:5px 8px;border-radius:7px;pointer-events:none}
 .chart-wrap{height:220px;background:var(--panel);border:1px solid var(--border);border-radius:14px;margin-top:14px;padding:10px}
@@ -73,9 +73,9 @@ h3{font-size:13px;color:var(--muted);margin:0 0 10px;text-transform:uppercase;le
 
   <div class="controls">
     <label>服务器</label>
-    <input id="serverInput" value="http://192.168.1.121:8889" />
+    <input id="serverInput" value="http://192.168.1.121:8889" placeholder="http://192.168.1.121:8889" />
     <label>路径</label>
-    <input id="pathInput" value="rtmp-webrtc" />
+    <input id="pathInput" value="rtmp-webrtc" placeholder="rtmp-webrtc" />
     <button id="connectBtn" class="primary">连接</button>
     <button id="disconnectBtn">断开</button>
     <span id="whepShow" class="tip"></span>
@@ -96,7 +96,7 @@ h3{font-size:13px;color:var(--muted);margin:0 0 10px;text-transform:uppercase;le
       <div class="cards">
         <div class="card"><div class="k">实时分辨率</div><div class="v c-blue" id="mRes">--</div></div>
         <div class="card"><div class="k">渲染帧率</div><div class="v c-purple" id="mFps">--</div></div>
-        <div class="card"><div class="k">视频码率</div><div class="v c-green" id="mBitrate">--</div></div>
+        <div class="card"><div class="k">视频码率(Mbps)</div><div class="v c-green" id="mBitrate">--</div></div>
         <div class="card"><div class="k">丢包率</div><div class="v c-orange" id="mLoss">--</div></div>
       </div>
 
@@ -822,17 +822,17 @@ class MediaMTXWebRTCReader {
 window.MediaMTXWebRTCReader = MediaMTXWebRTCReader;
 
 </script>
+<!-- 以上是 MediaMTX 源代码 -->
+<!-- 以下才是本页面逻辑实现代码 -->
 <script>
 "use strict";
-const $ = (s) => document.querySelector(s);
-const qp = new URLSearchParams(location.search);
-const CFG = {
-  server: qp.get("server") || "http://192.168.1.121:8889",
-  path: qp.get("path") || "rtmp-webrtc",
-  interval: 1000,
-  points: 60,
-};
 
+//这是一个简化的 DOM 选择器函数。
+//它封装了原生的 document.querySelector 方法，
+//允许通过 $('.class') 或 $('#id') 的方式快速选取页面中的第一个匹配元素。
+const $ = (s) => document.querySelector(s);
+
+//元素列表
 const el = {
   video: $("#video"), overlay: $("#overlay"),
   status: $("#status"), statusText: $("#statusText"),
@@ -843,8 +843,20 @@ const el = {
   themeBtn: $("#themeBtn"),
 };
 
-el.server.value = CFG.server;
-el.path.value = CFG.path;
+//创建一个 URLSearchParams 实例。
+//location.search 包含当前 URL 的查询字符串部分（即 ? 后面的内容）。URLSearchParams 提供了便捷的方法来读取、设置和删除这些参数。
+const qp = new URLSearchParams(location.search);
+
+//配置对象 CFG
+const CFG = {
+  server: qp.get("server") || el.server.value,// 优先从 URL 参数 ?server=xxx 获取，若无则从元素中取值
+  path: qp.get("path") || el.path.value,
+  interval: 1000,
+  points: 60,
+};
+
+el.server.value = CFG.server; //webrtc 服务器
+el.path.value = CFG.path;     //webrtc 路径
 
 let reader = null, pollTimer = null, rafTimer = null, started = false;
 let prev = { bytes: 0, audio: 0, ts: 0 };
@@ -975,14 +987,14 @@ async function pollStats() {
   if (v && v.codecId) { const c = report.get(v.codecId); if (c) codec = c.mimeType || ""; }
 
   const now = performance.now();
-  let mbps = 0, aMbps = 0;
+  let mbps = 0, aKbps = 0;
   if (v && prev.ts) {
     const dt = (now - prev.ts) / 1000;
     if (dt > 0) mbps = ((v.bytesReceived - prev.bytes) * 8) / dt / 1e6;
   }
   if (a && prev.ts) {
     const dt = (now - prev.ts) / 1000;
-    if (dt > 0) aMbps = ((a.bytesReceived - prev.audio) * 8) / dt / 1e6;
+    if (dt > 0) aKbps = ((a.bytesReceived - prev.audio) * 8) / dt / 1e3;
   }
   if (v) prev.bytes = v.bytesReceived;
   if (a) prev.audio = a.bytesReceived;
@@ -1007,7 +1019,7 @@ async function pollStats() {
   $("#mLoss").className = "v " + (lossRate > 2 ? "c-red" : "c-orange");
 
   $("#dCodec").textContent = codec || "--";
-  $("#dAudio").textContent = aMbps ? (aMbps.toFixed(3) + " Mbps") : "--";
+  $("#dAudio").textContent = aKbps ? (aKbps.toFixed(1) + " Kbps") : "--";
   $("#dJitter").textContent = v ? (jitterMs.toFixed(1) + " ms") : "--";
   $("#dRtt").textContent = (rttMs != null) ? (rttMs.toFixed(1) + " ms") : "--";
   $("#dPkt").textContent = v ? (recv + " / " + lost) : "--";

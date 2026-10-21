@@ -7,7 +7,7 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
   body { background:#0b0f17; color:#e2e8f0; font-family: -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; }
-  video { background:#000; }
+  video { background:#eee; }
   .metric-card { background:linear-gradient(145deg,#151c2c,#0f1522); border:1px solid #1f2937; border-radius:12px; }
   .metric-card .val { font-variant-numeric: tabular-nums; }
   .pulse-dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
@@ -118,7 +118,7 @@
 </head>
 <body class="min-h-screen">
 <div class="max-w-7xl mx-auto p-4">
-  <!-- 只美化了这个顶栏，其他所有结构完全不动 -->
+  <!-- 顶栏美化 -->
   <div class="beauty-header flex flex-wrap items-center gap-4">
     <div class="status-badge">
       <span class="pulse-dot pulse-off" id="liveDot"></span>
@@ -128,11 +128,11 @@
     <div class="flex-1 flex flex-wrap gap-3 items-center">
       <div class="input-wrap">
         <span class="input-icon">🌐</span>
-        <input id="server" class="w-full" placeholder="服务器地址 http://192.168.1.121:8889">
+        <input id="server" class="w-full" value="http://192.168.1.121:8889" placeholder="http://192.168.1.121:8889">
       </div>
       <div class="input-wrap">
         <span class="input-icon">📺</span>
-        <input id="path" class="w-full" placeholder="路径 rtmp-webrtc">
+        <input id="path" class="w-full" value="rtmp-webrtc" placeholder="rtmp-webrtc">
       </div>
       <div class="input-wrap min-w-[140px]">
         <select id="iceSel" title="ICE 模式" class="w-full">
@@ -159,7 +159,7 @@
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
     <!-- 视频区 -->
     <div class="lg:col-span-2">
-      <div class="relative rounded-xl overflow-hidden border border-slate-800 bg-black aspect-video">
+      <div class="relative rounded-xl overflow-hidden aspect-video">
         <video id="video" class="w-full h-full object-contain" autoplay playsinline muted></video>
         <div id="overlay" class="absolute inset-0 flex items-center justify-center text-slate-500 text-sm pointer-events-none">
           点击「连接」开始播放
@@ -282,8 +282,11 @@ let totBytes = 0, totPkts = 0, totLost = 0, totFrames = 0, totDropped = 0;
 // ④ URL 参数回填 & ICE 配置
 // =============================================
 const u = new URL(location.href);
-if (el.serverIn) el.serverIn.value = u.searchParams.get('server') || 'http://192.168.1.121:8889';
-if (el.pathIn) el.pathIn.value   = u.searchParams.get('path')   || 'rtmp-webrtc';
+if (el.serverIn) el.serverIn.value = u.searchParams.get('server') || '';
+if (el.pathIn) el.pathIn.value   = u.searchParams.get('path')   || '';
+
+//如果服务器地址 和 路径 存在，直接连接
+if (el.serverIn && el.pathIn) connect();
 
 if (el.clearLog) el.clearLog.onclick = () => { if(el.logBox) el.logBox.innerHTML = ''; };
 if (el.iceSel && el.iceCustom) el.iceSel.onchange = () => el.iceCustomAAA.classList.toggle('hidden', el.iceSel.value !== 'custom');
@@ -308,7 +311,7 @@ function setStatus(text, on) {
 }
 
 // =============================================
-// ⑤ WebRTC 核心连接逻辑 完全没动
+// ⑤ WebRTC 核心连接逻辑
 // =============================================
 async function connect() {
   disconnect(false);
@@ -413,7 +416,7 @@ function scheduleReconnect() {
 }
 
 // =============================================
-// ⑥ 实时指标采集 完全没动
+// ⑥ 实时指标采集
 // =============================================
 function resetMetrics() {
   last.vBytes = last.aBytes = last.frames = last.ts = 0;
@@ -493,7 +496,7 @@ function stopMetrics() {
 }
 
 // =============================================
-// ⑦ 事件绑定 完全没动
+// ⑦ 事件绑定
 // =============================================
 if(el.btn) el.btn.onclick = () => {
   if (pc && pc.connectionState !== 'closed' && pc.connectionState !== 'failed') disconnect(true);
