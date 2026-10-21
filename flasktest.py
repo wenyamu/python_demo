@@ -1,5 +1,7 @@
-from flask import Flask, render_template, url_for, request
+from flask import Flask, render_template, url_for, request, send_from_directory, send_file
 import pymysql
+import os
+
 app = Flask(__name__,
       template_folder='/python/templates',
       static_folder='/python/asset',
@@ -16,23 +18,30 @@ app = Flask(__name__,
 
 @app.route('/webrtc-player1')
 def index_webrtc1():
-  return render_template('webrtc-player1.html', title='MediaMTX WebRTC', info="flask web app")
-
+    # 页面文件 webrtc-player1.html 我是放在与本py文件同级的 html 目录中
+    directory = os.path.join(os.getcwd(), 'html') 
+    filename = 'webrtc-player1.html'
+    return send_from_directory(directory, filename)
+    
 @app.route('/webrtc-player2')
 def index_webrtc2():
-  return render_template('webrtc-player2.html', title='MediaMTX WebRTC', info="flask web app")
+    return send_file('/python/html/webrtc-player2.html')
+
+@app.route("/")
+def index_a():
+  return render_template('index.html', info="我是一个模板文件")
 
 @app.route("/temp")
-def index_a():
+def index_b():
   data = [{"name":"menghuiguli","age":"28"},{"name":"lisi","age":"22"},{"name":"wangwu","age":"40"},{"name":"zhaoliu","age":"18"}]
   return render_template("page.html",data=data)
 
 @app.route("/url_for")
 def url_for_a():
   #return request.args['name']
-  return request.url +"<br/>"+ request.base_url +"<br/>"+ request.host_url+"<br/>"+request.host+"<br/>"+request.path+"<br/>"+request.full_path+"<br/>"+request.url_root
-  #return url_for('index')
-  #return url_for('index_a', next='a', nexta='aa')+"<br/>"+url_for('index')+"<br/>"+url_for('pym222', home_id='a', nexta='aa')
+  #return request.url +"<br/>"+ request.base_url +"<br/>"+ request.host_url+"<br/>"+request.host+"<br/>"+request.path+"<br/>"+request.full_path+"<br/>"+request.url_root
+  #return url_for('index_a')
+  return url_for('index_a', next='a', nexta='aa')+"<br/>"+url_for('index_a')+"<br/>"+url_for('pym222', home_id='a', nexta='aa')
 
 @app.route("/pym2/<home_id>")
 def pym222(home_id):

@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WebRTC 直播监控</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background:#0b0f17; color:#e2e8f0; font-family: -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; }
+  video { background:#000; }
+  .metric-card { background:linear-gradient(145deg,#151c2c,#0f1522); border:1px solid #1f2937; border-radius:12px; }
+  .metric-card .val { font-variant-numeric: tabular-nums; }
+  .pulse-dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+  .pulse-live { background:#ef4444; box-shadow:0 0 0 0 rgba(239,68,68,.6); animation: pulse 1.5s infinite; }
+  .pulse-off { background:#475569; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(239,68,68,.6)} 70%{box-shadow:0 0 0 10px rgba(239,68,68,0)} 100%{box-shadow:0 0 0 0 rgba(239,68,68,0)} }
+  .glow-btn { background:linear-gradient(135deg,#3b82f6,#8b5cf6); transition: all .2s; }
+  .glow-btn:hover { filter:brightness(1.1); transform:translateY(-1px); }
+  .glow-btn:disabled { opacity:.5; cursor:not-allowed; transform:none; }
+  .disconnect-btn { background:linear-gradient(135deg,#ef4444,#dc2626); }
+  input, select { background:#0f172a; color:#e2e8f0; border-radius:8px; padding:6px 10px; font-size:12px; outline:none; }
+  input:focus { border-color:#3b82f6; }
+  #log { background:#0a0e18; border:1px solid #1e293b; border-radius:8px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size:12px; }
+  #log::-webkit-scrollbar { width:6px; } #log::-webkit-scrollbar-thumb { background:#334155; border-radius:3px; }
+  .badge-recv { background:#1e3a8a33; color:#93c5fd; border:1px solid #1e40af44; }
+  select { padding:6px 8px; }
+
+  /* 美化顶栏专属样式 */
+  .beauty-header {
+    background: rgba(30, 41, 59, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(148, 163, 184, 0.1);
+    border-radius: 16px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .beauty-header::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.5), transparent);
+  }
+  .status-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background: rgba(15, 23, 42, 0.6);
+    border-radius: 20px;
+    border: 1px solid rgba(148, 163, 184, 0.1);
+    min-width: 70px;
+  }
+  .input-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 180px;
+    padding: 4px 6px;
+    background: rgba(15, 23, 42, 0.6);
+    border-radius: 10px;
+  }
+  .input-wrap input, .input-wrap select {
+    padding-left: 34px;
+  }
+  .input-wrap select {
+    padding-left: 12px;
+  }
+  .input-icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #94a3b8;
+    font-size: 14px;
+    pointer-events: none;
+  }
+  .toggle-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(15, 23, 42, 0.4);
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(148, 163, 184, 0.1);
+  }
+  .toggle-switch {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    appearance: none;
+    background: #475569;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: 0.3s;
+    outline: none;
+  }
+  .toggle-switch::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background: white;
+    border-radius: 50%;
+    transition: 0.3s;
+  }
+  .toggle-switch:checked {
+    background: #3b82f6;
+  }
+  .toggle-switch:checked::after {
+    transform: translateX(16px);
+  }
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-7xl mx-auto p-4">
+  <!-- 只美化了这个顶栏，其他所有结构完全不动 -->
+  <div class="beauty-header flex flex-wrap items-center gap-4">
+    <div class="status-badge">
+      <span class="pulse-dot pulse-off" id="liveDot"></span>
+      <span id="liveText" class="text-slate-400 text-sm font-semibold">未连接</span>
+    </div>
+
+    <div class="flex-1 flex flex-wrap gap-3 items-center">
+      <div class="input-wrap">
+        <span class="input-icon">🌐</span>
+        <input id="server" class="w-full" placeholder="服务器地址 http://192.168.1.121:8889">
+      </div>
+      <div class="input-wrap">
+        <span class="input-icon">📺</span>
+        <input id="path" class="w-full" placeholder="路径 rtmp-webrtc">
+      </div>
+      <div class="input-wrap min-w-[140px]">
+        <select id="iceSel" title="ICE 模式" class="w-full">
+          <option value="local" selected>局域网直连（最快）</option>
+          <option value="stun">公网 STUN</option>
+          <option value="custom">自定义 TURN/STUN</option>
+        </select>
+      </div>
+      <div id="iceCustomAAA" class="input-wrap min-w-[200px] hidden">
+        <span class="input-icon">🔗</span>
+        <input id="iceCustom" class="w-full" placeholder="stun:... 或 turn:...">
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <label class="toggle-box text-xs text-slate-400">
+        <span>自动重连</span>
+        <input type="checkbox" id="autoReconnect" class="toggle-switch" checked>
+      </label>
+      <button id="btn" class="glow-btn text-white font-medium px-5 py-1.5 rounded-lg text-sm">连接</button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <!-- 视频区 -->
+    <div class="lg:col-span-2">
+      <div class="relative rounded-xl overflow-hidden border border-slate-800 bg-black aspect-video">
+        <video id="video" class="w-full h-full object-contain" autoplay playsinline muted></video>
+        <div id="overlay" class="absolute inset-0 flex items-center justify-center text-slate-500 text-sm pointer-events-none">
+          点击「连接」开始播放
+        </div>
+        <div id="topBadge" class="absolute top-2 left-2 hidden items-center gap-2 bg-black/60 backdrop-blur px-2 py-1 rounded text-xs">
+          <span class="pulse-dot pulse-live"></span>
+          <span id="badgeText">LIVE</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 指标面板 -->
+    <div class="space-y-3">
+      <div class="grid grid-cols-2 gap-3">
+        <div class="metric-card p-3">
+          <div class="text-xs text-slate-400">分辨率</div>
+          <div class="val text-xl font-bold mt-1" id="mRes">—</div>
+        </div>
+        <div class="metric-card p-3">
+          <div class="text-xs text-slate-400">帧率</div>
+          <div class="val text-xl font-bold mt-1 text-emerald-400" id="mFps">—</div>
+        </div>
+        <div class="metric-card p-3">
+          <div class="text-xs text-slate-400">视频码率</div>
+          <div class="val text-xl font-bold mt-1 text-cyan-400" id="mVBw">—</div>
+        </div>
+        <div class="metric-card p-3">
+          <div class="text-xs text-slate-400">音频码率</div>
+          <div class="val text-xl font-bold mt-1 text-fuchsia-400" id="mABw">—</div>
+        </div>
+        <div class="metric-card p-3">
+          <div class="text-xs text-slate-400">丢包率</div>
+          <div class="val text-xl font-bold mt-1" id="mLoss">—</div>
+        </div>
+        <div class="metric-card p-3">
+          <div class="text-xs text-slate-400">往返延迟 RTT</div>
+          <div class="val text-xl font-bold mt-1 text-amber-400" id="mRtt">—</div>
+        </div>
+        <div class="metric-card p-3">
+          <div class="text-xs text-slate-400">网络抖动</div>
+          <div class="val text-lg font-bold mt-1" id="mJitter">—</div>
+        </div>
+        <div class="metric-card p-3">
+          <div class="text-xs text-slate-400">已接收</div>
+          <div class="val text-lg font-bold mt-1" id="mBytes">—</div>
+        </div>
+        <div class="metric-card p-3 col-span-2">
+          <div class="text-xs text-slate-400">编码 / 状态</div>
+          <div class="val text-sm mt-1 flex flex-wrap gap-2">
+            <span class="px-2 py-0.5 rounded badge-recv text-xs" id="mCodec">—</span>
+            <span class="px-2 py-0.5 rounded badge-recv text-xs" id="mPkts">包 0 / 丢 0</span>
+            <span class="px-2 py-0.5 rounded badge-recv text-xs" id="mFrames">帧 0 / 丢 0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 日志 -->
+      <div>
+        <div class="text-xs text-slate-400 mb-1 px-1 flex justify-between">
+          <span>运行日志</span>
+          <button id="clearLog" class="text-slate-500 hover:text-slate-300">清空</button>
+        </div>
+        <div id="log" class="h-32 overflow-y-auto p-2 space-y-0.5"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// =============================================
+// ① 通用工具 & DOM 引用
+// =============================================
+const $ = id => document.getElementById(id);
+const el = {
+  video: $('video'), overlay: $('overlay'), topBadge: $('topBadge'), badgeText: $('badgeText'),
+  liveDot: $('liveDot'), liveText: $('liveText'), btn: $('btn'),
+  serverIn: $('server'), pathIn: $('path'), iceSel: $('iceSel'), iceCustomAAA: $('iceCustomAAA'), iceCustom: $('iceCustom'),
+  logBox: $('log'),
+  mRes:$('mRes'),mFps:$('mFps'),mVBw:$('mVBw'),mABw:$('mABw'),mLoss:$('mLoss'),
+  mRtt:$('mRtt'),mJitter:$('mJitter'),mBytes:$('mBytes'),mCodec:$('mCodec'),
+  mPkts:$('mPkts'),mFrames:$('mFrames'),clearLog:$('clearLog'),autoReconnect:$('autoReconnect')
+};
+
+const safe$ = id => document.getElementById(id);
+const fmtBps = bps => {
+  if (bps >= 1e6) return (bps/1e6).toFixed(2)+' Mbps';
+  if (bps >= 1e3) return (bps/1e3).toFixed(0)+' Kbps';
+  return bps.toFixed(0)+' bps';
+};
+const fmtBytes = b => {
+  if (b >= 1073741824) return (b/1073741824).toFixed(2)+' GB';
+  if (b >= 1048576)    return (b/1048576).toFixed(2)+' MB';
+  if (b >= 1024)       return (b/1024).toFixed(1)+' KB';
+  return b+' B';
+};
+
+// =============================================
+// ② 日志系统
+// =============================================
+function log(msg, type='info') {
+  if (!el.logBox) return;
+  const color = { info:'text-slate-400', ok:'text-emerald-400', warn:'text-amber-400', err:'text-rose-400' }[type];
+  const t = new Date().toLocaleTimeString('zh-CN', {hour12:false});
+  const line = document.createElement('div');
+  line.className = color;
+  line.textContent = `[${t}] ${msg}`;
+  el.logBox.appendChild(line);
+  el.logBox.scrollTop = el.logBox.scrollHeight;
+  while (el.logBox.children.length > 120) el.logBox.removeChild(el.logBox.firstChild);
+}
+
+// =============================================
+// ③ 全局状态
+// =============================================
+let pc = null, metricsTimer = null, reconnectTimer = null;
+const last = { vBytes: 0, aBytes: 0, frames: 0, ts: 0 };
+let totBytes = 0, totPkts = 0, totLost = 0, totFrames = 0, totDropped = 0;
+
+// =============================================
+// ④ URL 参数回填 & ICE 配置
+// =============================================
+const u = new URL(location.href);
+if (el.serverIn) el.serverIn.value = u.searchParams.get('server') || 'http://192.168.1.121:8889';
+if (el.pathIn) el.pathIn.value   = u.searchParams.get('path')   || 'rtmp-webrtc';
+
+if (el.clearLog) el.clearLog.onclick = () => { if(el.logBox) el.logBox.innerHTML = ''; };
+if (el.iceSel && el.iceCustom) el.iceSel.onchange = () => el.iceCustomAAA.classList.toggle('hidden', el.iceSel.value !== 'custom');
+
+function buildIceServers() {
+  if (!el.iceSel) return [];
+  const v = el.iceSel.value;
+  if (v === 'stun')   return [{ urls:'stun:stun.l.google.com:19302' }];
+  if (v === 'custom' && el.iceCustom) {
+    const s = el.iceCustom.value.trim();
+    if (!s) return [];
+    return s.split(',').map(u => u.startsWith('turn:') || u.startsWith('turns:')
+      ? { urls:u, username:'', credential:'' }
+      : { urls:u });
+  }
+  return []; // 局域网直连最快
+}
+
+function setStatus(text, on) {
+  if(el.liveText) el.liveText.textContent = text;
+  if(el.liveDot) el.liveDot.className = 'pulse-dot ' + (on ? 'pulse-live' : 'pulse-off');
+}
+
+// =============================================
+// ⑤ WebRTC 核心连接逻辑 完全没动
+// =============================================
+async function connect() {
+  disconnect(false);
+  if (!el.serverIn || !el.pathIn) { log('页面元素缺失，请检查DOM', 'err'); return; }
+  const server = el.serverIn.value.trim().replace(/\/$/, '');
+  const path   = el.pathIn.value.trim().replace(/^\/|\/$/g, '');
+  if (!server || !path) { log('请填写服务器地址和路径', 'err'); return; }
+  const whepUrl = `${server}/${path}/whep`;
+
+  if(el.btn) { el.btn.disabled = true; el.btn.textContent = '连接中…'; }
+  setStatus('协商中…', false);
+  if(el.overlay) { el.overlay.style.display = 'flex'; el.overlay.textContent = '正在与服务器协商…'; }
+  log(`连接到 ${whepUrl}`, 'info');
+
+  try {
+    pc = new RTCPeerConnection({ iceServers: buildIceServers() });
+    pc.addTransceiver('video', { direction:'recvonly' });
+    pc.addTransceiver('audio', { direction:'recvonly' });
+
+    pc.ontrack = (e) => {
+      if (!el.video) return;
+      el.video.srcObject = e.streams[0];
+      if (e.track.kind === 'video') {
+        if(el.overlay) el.overlay.style.display = 'none';
+        if(el.topBadge) { el.topBadge.classList.remove('hidden'); el.topBadge.classList.add('flex'); }
+        log('收到视频轨', 'ok');
+      } else {
+        log('收到音频轨', 'ok');
+      }
+    };
+
+    pc.onconnectionstatechange = () => {
+      const s = pc.connectionState;
+      log(`连接状态: ${s}`, s === 'connected' ? 'ok' : (s === 'failed'||s==='disconnected'?'warn':'info'));
+      if (s === 'connected') {
+        resetMetrics();
+        startMetrics();
+        setStatus('LIVE', true);
+        if(el.btn) { el.btn.textContent = '断开'; el.btn.disabled = false; el.btn.classList.add('disconnect-btn'); }
+      } else if (s === 'failed' || s === 'disconnected' || s === 'closed') {
+        if(el.topBadge) el.topBadge.classList.add('hidden');
+        if (s === 'failed') log('连接失败，检查UDP 8189端口或开启STUN', 'err');
+        if (s !== 'closed' && el.autoReconnect?.checked) scheduleReconnect();
+        stopMetrics();
+        setStatus(s === 'closed' ? '未连接' : '已断开', false);
+        if(el.btn) { el.btn.textContent = '连接'; el.btn.disabled = false; el.btn.classList.remove('disconnect-btn'); }
+        if(el.overlay) { el.overlay.style.display = 'flex'; el.overlay.textContent = s === 'failed' ? '连接失败' : '已断开'; }
+      }
+    };
+
+    pc.onicegatheringstatechange = () => {
+      if (pc.iceGatheringState === 'gathering') log('收集网络候选…', 'info');
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    if (pc.iceGatheringState !== 'complete') {
+      await new Promise(r => {
+        pc.addEventListener('icegatheringstatechange', r, { once:true });
+        setTimeout(r, 2000); // 超时保护
+      });
+    }
+
+    log('发送 SDP Offer…', 'info');
+    const res = await fetch(whepUrl, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/sdp' },
+      body: pc.localDescription.sdp
+    });
+    if (!res.ok) throw new Error(`服务器返回 ${res.status} ${res.statusText}`);
+    const answerSdp = await res.text();
+    await pc.setRemoteDescription({ type:'answer', sdp: answerSdp });
+    log('收到 SDP Answer，建立媒体通道', 'ok');
+  } catch (err) {
+    log('连接异常: ' + err.message, 'err');
+    if(el.overlay) { el.overlay.style.display = 'flex'; el.overlay.textContent = '连接失败：' + err.message; }
+    setStatus('连接失败', false);
+    if(el.btn) { el.btn.textContent = '连接'; el.btn.disabled = false; el.btn.classList.remove('disconnect-btn'); }
+    if(el.autoReconnect?.checked) scheduleReconnect();
+  }
+}
+
+function disconnect(userInitiated = true) {
+  clearTimeout(reconnectTimer); reconnectTimer = null;
+  stopMetrics();
+  if (pc) { try { pc.close(); } catch(e){} pc = null; }
+  if(el.video) el.video.srcObject = null;
+  if(el.overlay) { el.overlay.style.display = 'flex'; el.overlay.textContent = '点击「连接」开始播放'; }
+  if(el.topBadge) el.topBadge.classList.add('hidden');
+  setStatus('未连接', false);
+  if(el.btn) { el.btn.textContent = '连接'; el.btn.disabled = false; el.btn.classList.remove('disconnect-btn'); }
+  ['mRes','mFps','mVBw','mABw','mLoss','mRtt','mJitter','mBytes','mCodec','mPkts','mFrames'].forEach(id => {
+    const dom = safe$(id); if(dom) dom.textContent = '—';
+  });
+  if (userInitiated) log('已断开', 'info');
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer) return;
+  log('3 秒后自动重连…', 'warn');
+  reconnectTimer = setTimeout(() => { reconnectTimer = null; connect(); }, 3000);
+}
+
+// =============================================
+// ⑥ 实时指标采集 完全没动
+// =============================================
+function resetMetrics() {
+  last.vBytes = last.aBytes = last.frames = last.ts = 0;
+  totBytes = totPkts = totLost = totFrames = totDropped = 0;
+}
+
+async function collectMetrics() {
+  if (!pc) return;
+  const stats = await pc.getStats();
+  let vRtp = null, aRtp = null, pair = null, vCodec = '', aCodec = '';
+  const codecs = {};
+  stats.forEach(r => { if (r.type === 'codec') codecs[r.id] = r.mimeType.split('/')[1] || r.mimeType; });
+  stats.forEach(r => {
+    if (r.type === 'inbound-rtp') {
+      if (r.kind === 'video') vRtp = r;
+      else if (r.kind === 'audio') aRtp = r;
+    } else if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') pair = r;
+  });
+
+  const now = performance.now();
+  const dt = last.ts ? (now - last.ts)/1000 : 1;
+
+  let vBw = 0, aBw = 0, fps = 0, loss = 0, w='-', h='-', jitter=0, rtt=0;
+  let vPkts=0, vLost=0, frames=0, dropped=0;
+
+  if (vRtp) {
+    if (last.vBytes) vBw = (vRtp.bytesReceived - last.vBytes) * 8 / dt;
+    last.vBytes = vRtp.bytesReceived;
+    frames = vRtp.framesDecoded || 0;
+    if (last.frames) fps = (frames - last.frames) / dt;
+    last.frames = frames;
+    w = vRtp.frameWidth || w; h = vRtp.frameHeight || h;
+    vPkts = vRtp.packetsReceived || 0; vLost = vRtp.packetsLost || 0;
+    jitter = vRtp.jitter || 0;
+    dropped = vRtp.framesDropped || 0;
+    if (vRtp.codecId && codecs[vRtp.codecId]) vCodec = codecs[vRtp.codecId];
+  }
+  if (aRtp) {
+    if (last.aBytes) aBw = (aRtp.bytesReceived - last.aBytes) * 8 / dt;
+    last.aBytes = aRtp.bytesReceived;
+    if (aRtp.codecId && codecs[aRtp.codecId]) aCodec = codecs[aRtp.codecId];
+  }
+  if (pair) rtt = (pair.currentRoundTripTime || 0) * 1000;
+
+  const totalPkts = vPkts + (aRtp ? (aRtp.packetsReceived||0) : 0);
+  const totalLost = vLost + (aRtp ? (aRtp.packetsLost||0) : 0);
+  if (totalPkts > 0) loss = totalLost / (totalPkts + totalLost) * 100;
+  totPkts = totalPkts; totLost = totalLost; totFrames = frames; totDropped = dropped;
+  totBytes = (vRtp ? vRtp.bytesReceived : 0) + (aRtp ? aRtp.bytesReceived : 0);
+  last.ts = now;
+
+  // 更新UI
+  if(el.mRes) el.mRes.textContent   = (w==='-'||h==='-') ? '—' : `${w}×${h}`;
+  if(el.mFps) el.mFps.textContent   = fps ? fps.toFixed(1)+' fps' : '—';
+  if(el.mVBw) el.mVBw.textContent   = vBw ? fmtBps(vBw) : '—';
+  if(el.mABw) el.mABw.textContent   = aBw ? fmtBps(aBw) : '—';
+  if(el.mLoss) {
+    el.mLoss.textContent  = (totalPkts>0) ? loss.toFixed(2)+'%' : '—';
+    el.mLoss.className    = 'val text-xl font-bold mt-1 ' + (loss>1 ? 'text-rose-400' : (loss>0.1?'text-amber-400':'text-emerald-400'));
+  }
+  if(el.mRtt) el.mRtt.textContent   = rtt ? rtt.toFixed(1)+' ms' : '—';
+  if(el.mJitter) el.mJitter.textContent= (vRtp && jitter) ? (jitter*1000).toFixed(1)+' ms' : '—';
+  if(el.mBytes) el.mBytes.textContent = totBytes ? fmtBytes(totBytes) : '—';
+  if(el.mCodec) el.mCodec.textContent = [vCodec && 'V/'+vCodec, aCodec && 'A/'+aCodec].filter(Boolean).join(' · ') || '—';
+  if(el.mPkts) el.mPkts.textContent  = `包 ${totPkts} / 丢 ${totLost}`;
+  if(el.mFrames) el.mFrames.textContent= `帧 ${totFrames} / 丢 ${totDropped}`;
+  if(el.badgeText) el.badgeText.textContent = (w!=='-') ? `LIVE ${w}×${h} @ ${fps.toFixed(0)}fps ${(vBw/1e6).toFixed(2)}Mbps` : 'LIVE';
+}
+
+function startMetrics() {
+  stopMetrics(); resetMetrics();
+  metricsTimer = setInterval(collectMetrics, 1000);
+  collectMetrics();
+}
+function stopMetrics() {
+  if (metricsTimer) { clearInterval(metricsTimer); metricsTimer = null; }
+}
+
+// =============================================
+// ⑦ 事件绑定 完全没动
+// =============================================
+if(el.btn) el.btn.onclick = () => {
+  if (pc && pc.connectionState !== 'closed' && pc.connectionState !== 'failed') disconnect(true);
+  else connect();
+};
+if(el.video) el.video.addEventListener('click', () => { if (el.video.paused) el.video.play(); });
+log('监控页面已就绪，点击连接开始播放', 'info');
+</script>
+</body>
+</html>
