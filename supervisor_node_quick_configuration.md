@@ -26,8 +26,8 @@ EOF
 ### 配置子程序配置项，此配置项不同的程序有不同的设置
 ```
 mkdir -p /etc/supervisor/my_config && \
-cat > /etc/supervisor/my_config/ffmpeg.ini <<EOF
-[program:Multi-resolution]
+cat > /etc/supervisor/my_config/Multi_Resolution.ini <<EOF
+[program:Multi_Resolution]
 ;标准推荐范围为 0-999 ‌默认值‌：‌999‌ ‌规则‌：‌数值越小，优先级越高，越先启动‌。
 ; priority=11
 ;创建该项目用户
