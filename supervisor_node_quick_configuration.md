@@ -23,7 +23,7 @@ files = /etc/supervisor/my_config/*.ini
 EOF
 ```
 
-### 配置子程序配置项
+### 配置子程序配置项，此配置项不同的程序有不同的设置
 ```
 mkdir -p /etc/supervisor/my_config && \
 cat > /etc/supervisor/my_config/ffmpeg.ini <<EOF
@@ -33,7 +33,7 @@ cat > /etc/supervisor/my_config/ffmpeg.ini <<EOF
 ;创建该项目用户
 user = root
 
-;应用目录
+;应用目录，hls_abr_gen.py 存放目录 /root/test
 directory = /root/test
 
 ;ffmpeg程序命令
