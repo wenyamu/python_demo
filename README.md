@@ -51,7 +51,7 @@ supervisor          4.3.0
 mkdir -p /etc/supervisor && \
 echo_supervisord_conf > /etc/supervisor/supervisord.conf && \
 cp /etc/supervisor/supervisord.conf /etc/supervisor/supervisord.conf.bak && \
-grep -v "#" /etc/supervisor/supervisord.conf.bak > /etc/supervisor/supervisord.conf
+grep -v ";" /etc/supervisor/supervisord.conf.bak > /etc/supervisor/supervisord.conf
 ```
 
 ### 启动 supervisor
