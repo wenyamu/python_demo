@@ -29,7 +29,9 @@ cp mediamtx.yml mediamtx.yml.bak
 
 #查看配置文件(过滤掉配置文件中的注释项)并写入另一文件
 grep -v "#" mediamtx.yml.bak > mediamtx.yml
+```
 
+```
 #配置文件中添加"网络实时通信附加主机ip",也就 mediamtx 运行的服务器ip，如果是局域网，可以不填
 webrtcAdditionalHosts: ["192.168.1.121"]
 
@@ -54,7 +56,7 @@ paths:
 TZ=Asia/Shanghai /usr/local/mediamtx/mediamtx /usr/local/mediamtx/mediamtx.yml
 
 #推流
-
+# rtmp
 TZ=Asia/Shanghai ffmpeg-diy -y \
    -f v4l2 -input_format mjpeg -video_size 1280x720 -framerate 30 -i /dev/video0 \
    -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=48000 \
@@ -67,8 +69,7 @@ TZ=Asia/Shanghai ffmpeg-diy -y \
    -r 30 -g 60 -keyint_min 60 \
    -f flv "rtmp://127.0.0.1:1935/show-rtc/abc123456"
 
-
-
+# rtsp
 TZ=Asia/Shanghai ffmpeg-diy -y \
    -f v4l2 -input_format mjpeg -video_size 1280x720 -framerate 30 -i /dev/video0 \
    -f alsa -ar 48000 -ac 2 -i plughw:3,0 \
@@ -83,7 +84,7 @@ TZ=Asia/Shanghai ffmpeg-diy -y \
 
 ```
 
-
+```
 # 浏览器访问 网络实时通信 webrtc 低延迟，局域网内延迟不明显
 http://192.168.1.121:8889/rtmp-webrtc
 http://192.168.1.121:8889/rtsp-webrtc
@@ -91,13 +92,13 @@ http://192.168.1.121:8889/rtsp-webrtc
 这里注意：
 #"-c:a aac" 进行 webrtc 播放时没有声音，向 mediamtx 推流时改成 "-c:a libopus"，因为 webrtc 不支持 aac 音频编码；但是又会导致 rmtp 拉流时没有声音
 
-
 如果想访问 hls，以下两种方式，延迟不一样
 http://192.168.1.121:8888/rtmp-webrtc #延迟低
 http://192.168.1.121:8888/rtmp-webrtc/index.m3u8 #延迟高
-
-
+```
+```
 # 查看 ffmpeg 是否运行
 ps aux | grep -i ffmpeg
 ps aux | grep -i mediamtx
 ps aux | grep -i supervisor
+```
