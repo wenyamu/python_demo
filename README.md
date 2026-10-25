@@ -46,9 +46,12 @@ supervisor          4.3.0
 ```
 
 ### 生成默认配置文件
+> 备份配置文件 并去掉注释
 ```
 mkdir -p /etc/supervisor && \
-echo_supervisord_conf > /etc/supervisor/supervisord.conf
+echo_supervisord_conf > /etc/supervisor/supervisord.conf && \
+cp /etc/supervisor/supervisord.conf /etc/supervisor/supervisord.conf.bak && \
+grep -v "#" /etc/supervisor/supervisord.conf.bak > /etc/supervisor/supervisord.conf
 ```
 
 ### 启动 supervisor
