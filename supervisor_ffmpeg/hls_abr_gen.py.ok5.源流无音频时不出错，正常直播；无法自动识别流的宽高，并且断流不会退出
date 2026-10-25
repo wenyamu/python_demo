@@ -1,0 +1,1112 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+HLS ABR 多清晰度打包命令生成器
+=================================================
+
+两种工作模式，自动识别：
+
+【模式一：单源 split 转码】
+  一路源进来，脚本帮你 split + scale 转成多档 HLS。
+  结构约定：
+    * 输出流索引 0 固定留给最高清档：源那一路，默认 -c:v:0 copy（省 CPU）
+    * 其余档位从索引 1 开始，依次 1、2、3 ...
+    * 滤镜输出命名与输出流索引严格对应：[v1out]/[a1] -> -c:v:1/-c:a:1
+    * 索引 0 号档直接 -map 0:v / 0:a（不进滤镜）
+    * 索引 1..N-1 号档走 filter_complex（split/scale + asplit）
+    * 音频每档独立成流，避免 "Same elementary stream" 报错
+
+  用法：此时是单进多出，使用 -i/--input
+    python3 hls_abr_gen.py -i rtsp://localhost:8554/live/source -o /mnt/hls \
+      --presets 1080p,720p,360p
+    
+    # 脚本会按档名自动用预设码率填 -b:v:N。想自定义就用 --bitrates
+    python3 hls_abr_gen.py -i rtsp://localhost:8554/live/source -o /mnt/hls \
+      --presets 2k,1080p,720p \
+      --bitrates 18000k,4500k,2200k
+    
+    # 脚本会按档名自动用预设码率填 -b:v:N。但是copy档生成的 master.m3u8 中 BANDWIDTH 值不对，需要指定一下
+    python3 hls_abr_gen.py -i rtsp://localhost:8554/live/source -o /mnt/hls \
+      --presets 2k,1080p,720p \
+      --top-bitrate 5000k
+    
+    # 指定 -c:v libx264 -preset veryfast
+    python3 hls_abr_gen.py -i rtsp://localhost:8554/live/source -o /mnt/hls \
+        --presets 4k,2k,1080p,720p \
+        --x264-preset veryfast
+    
+    # 选择视频编码方式
+    python3 hls_abr_gen.py -i rtmp://192.168.1.121:1935/live/src -o /mnt/hls \
+      --presets 1080p,720p,480p \
+      --hw rkmpp
+
+    # 最高档也必须转码（不能 copy）
+    python3 hls_abr_gen.py -i rtmp://src -o /mnt/hls \
+      --presets 1080p,720p \
+      --no-copy-top --no-audio-copy
+    
+    # 任务中断后续跑‌:不想从头再来时，-hls_flags append_list 加了之后断点续写,历史的 m3u8 还在。
+    python3 hls_abr_gen.py -i rtmp://src -o /mnt/hls \
+      --presets 1080p,720p \
+      --append-list
+
+【模式二：多源 copy 打包】
+  已经有各清晰度成品流/文件（多路 RTSP/RTMP/本地文件），
+  直接无损 remux 打包成多档 HLS + master.m3u8，零转码零 CPU。
+  索引规则与单源模式一致：索引 0 留给最高档（--inputs 里的第一个），
+  其余从 1 开始。
+
+  用法：此时是多进多出，使用 --inputs
+    # 多路直播流（纯 copy，CPU≈0）
+    python3 hls_abr_gen.py -o /mnt/hls \
+        --inputs "4k=rtsp://srv/live/4k,2k=rtsp://srv/live/2k,1080p=rtsp://srv/live/1080p"
+
+    # 多路视频源（纯 copy，CPU≈0）
+    python3 hls_abr_gen.py -o /mnt/hls \
+        --inputs "4k=/4k.mp4,2k=/2k.mp4,1080p=/1080p.mp4,720p=/720p.mp4"
+
+    # 脚本会按档名自动用预设码率填 -b:v:N。想自定义就用 --bitrates
+    python3 hls_abr_gen.py -o /mnt/hls \
+        --inputs "4k=rtsp://.../4k,1080p=rtsp://.../1080p,720p=rtsp://.../720p" \
+        --bitrates 18000k,4500k,2200k
+
+    # 本地多文件打包成 VOD（不加 -re，或直接使用 --vod，全速处理）
+    python3 hls_abr_gen.py -o /mnt/hls \
+        --inputs "4k=v_4k.mp4,1080p=v_1080p.mp4,720p=v_720p.mp4" \
+        --no-re
+
+    # 强制所有音频重编码为 AAC（视频仍 copy）
+    python3 hls_abr_gen.py -o /mnt/hls \
+        --inputs "1080p=rtsp://.../1080p,720p=rtsp://.../720p" \
+        --force-audio-aac
+
+【替换音频】（--replace-audio / --ra，配合 --ra-mode）
+  把原音轨整体替换成你指定的一个或多个外部音频文件/流，所有档位
+  音频统一转成 AAC 128k（保证 TS 兼容），原音轨自动排除。
+  三种分配模式（--ra-mode）：
+
+    single  所有档位共用同一个音频。（默认；只传一个文件时强制 single）
+            例：--ra bgm.mp3  →  4 档都用 bgm.mp3
+
+    per     按档位索引 0,1,2,... 循环分配（每个清晰度可指定不同音频）：
+              0→第1个，1→第2个，2→第3个，3→第1个（循环）
+            例：--ra a1.mp3,a2.mp3,a3.mp3 --ra-mode per --presets 4k,2k,1080p,720p
+              → 4k→a1, 2k→a2, 1080p→a3, 720p→a1（循环）
+
+    seq     多个音频按 1→2→3→1→2→3 顺序循环轮流播放，这是一条共享音轨：
+              所有清晰度共用这同一条"轮换音频流"。
+            直播：通过 filter_complex 滤镜 concat+n 拼一轮 + aloop=loop=-1 无限循环
+              （不写任何临时文件、不重复条目）；
+            VOD：滤镜 concat 只拼一轮结束（不循环）。
+            例：--ra a1.mp3,a2.mp3,a3.mp3 --ra-mode seq
+              → 4 档全部听到 a1→a2→a3→a1→a2→a3... 循环
+  * 替换音频默认无限循环（BGM/轮换音轨需要覆盖整个视频长度）；
+    需要"播完就停"时用 --no-audio-loop 显式关闭（例如等长配音）。
+  * 同时支持单源模式和多源模式。
+
+  用法：
+    # 所有档位都用同一个背景音乐（直播自动循环）
+    python3 hls_abr_gen.py -i rtsp://src/live -o /mnt/hls \
+        --presets 4k,2k,1080p,720p \
+        --ra bgm.mp3
+
+    # 每档用不同音频，按档位索引循环（档位数 > 音频数时回到第1个）
+    python3 hls_abr_gen.py -i rtsp://src/live -o /mnt/hls \
+        --presets 4k,2k,1080p,720p \
+        --ra a1.mp3,a2.mp3,a3.mp3 \
+        --ra-mode per
+
+    # 多个音频按 1→2→3 轮流循环播放，所有清晰度共用同一条轮换音轨
+    python3 hls_abr_gen.py -i rtsp://src/live -o /mnt/hls \
+        --presets 4k,2k,1080p,720p \
+        --ra a1.mp3,a2.mp3,a3.mp3 \
+        --ra-mode seq
+    
+    # 多个视频源，分配多个音频
+    python3 hls_abr_gen.py -o /mnt/hls \
+        --inputs "4k=v_4k.mp4,1080p=v_1080p.mp4,720p=v_720p.mp4" \
+        --ra a1.mp3,a2.mp3,a3.mp3 \
+        --ra-mode seq
+    
+    # VOD 打包，替换音频长度与视频匹配、不循环
+    python3 hls_abr_gen.py -o /mnt/hls \
+        --inputs "1080p=a.mp4,720p=b.mp4" \
+        --ra voice_cn.m4a \
+        --no-re
+
+【源无音频】（--audio auto/none/force）
+  推流源本身没有声音、又不替换音频时，脚本默认（auto）会先用 ffprobe
+  探测源是否含音频流：
+    * 有音频：正常输出「视频 + 音频」双轨（与旧行为一致）；
+    * 无音频：自动降级为「纯视频 HLS」——不生成 [0:a] 音频滤镜、
+      不做任何音频 -map、var_stream_map 里也不出现 a:i，
+      从而彻底避免 "Stream map '0:a' matches no streams" / "matches no streams
+      in filtergraph" 之类的报错，视频照样正常直播/打包出去。
+  多源模式下逐个源分别探测：某一路没声音，只有那一档是纯视频，其余档
+  照常带音频，音频流索引会自动重新编号、不会错位。
+
+  若探测不方便（直播源连不上、ffprobe 超时）或已知源没有声音，可强制：
+    --audio none   直接按「无音频」生成纯视频命令（不探测）
+    --audio force  强制按「有音频」处理，保持旧行为（不探测），但如果视频确实无音频，则会报错
+
+  用法：
+    # 源没有声音，让视频照样推出去（自动探测，推荐）
+    python3 hls_abr_gen.py -i rtmp://39.96.29.167:1935/show-flv/xxx -o /mnt/hls3 \
+        --presets 1080p,720p,360p
+
+    # 已知无声音 / 探测失败，强制纯视频
+    python3 hls_abr_gen.py -i rtmp://.../xxx -o /mnt/hls3 \
+        --presets 1080p,720p,360p --audio none
+
+    # 无声音的源 + 用外部音频补上声音（使用 --ra 音频来自外部文件）
+    python3 hls_abr_gen.py -i rtmp://.../xxx -o /mnt/hls3 \
+        --presets 1080p,720p,360p --ra bgm.mp3
+"""
+
+import argparse
+import subprocess
+import sys
+import os
+
+# ========== 预设档位：(名称, 宽, 高, 视频码率bps) ==========
+PRESETS_ORDERED = [
+    ("4k",    3840, 2160, 8_000_000),
+    ("2k",    2560, 1440, 6_000_000),
+    ("1080p", 1920, 1080, 4_000_000),
+    ("720p",  1280,  720, 2_500_000),
+    ("480p",   854,  480, 1_200_000),
+    ("360p",   640,  360,   800_000),
+    ("240p",   426,  240,   400_000),
+]
+PRESETS = {n: (w, h, br) for n, w, h, br in PRESETS_ORDERED}
+'''
+PRESETS = {
+    "4k":    (3840, 2160, 8_000_000),
+    "2k":    (2560, 1440, 6_000_000),
+    "1080p": (1920, 1080, 4_000_000),
+    "720p":  (1280, 720,  2_000_000),
+    "480p":  (854,  480,  1_000_000),
+    "360p":  (640,  360,    800_000),
+    "240p":  (426,  240,    400_000),
+}
+print(PRESETS)
+'''
+# 编码器
+HW_ENCODERS = {
+    "software": "libx264",
+    "rkmpp":    "h264_rkmpp",
+    "vaapi":    "h264_vaapi",
+    "nvenc":    "h264_nvenc",
+}
+
+NET_SCHEMES = ("rtmp://", "rtsp://", "srt://", "http://", "https://")
+
+def fmt_rate(bps):
+    """码率输出：能整除 1000 就写成 xxxk，否则写原始 bps。"""
+    if bps % 1000 == 0:
+        return f"{bps // 1000}k"
+    return str(bps)
+
+def parse_bitrates(text):
+    """解析码率字符串，支持 k/m 后缀，如 20000k,9000k,5000k,2500k"""
+    out = []
+    for b in text.split(","):
+        b = b.strip().lower()
+        mult = 1
+        if b.endswith("k"):
+            mult, b = 1_000, b[:-1]
+        elif b.endswith("m"):
+            mult, b = 1_000_000, b[:-1]
+        out.append(int(float(b) * mult))
+    return out
+
+def encoder_opts(idx, br, encoder, mf, bf_, x264_preset):
+    """各档位的编码器专属参数。"""
+    opts = []
+    if encoder == "libx264":
+        opts += [f"-maxrate:v:{idx}", fmt_rate(int(br * mf)),
+                 f"-bufsize:v:{idx}", fmt_rate(int(br * bf_))]
+        if x264_preset and x264_preset.lower() != "none":
+            opts += [f"-preset:v:{idx}", x264_preset]
+    elif encoder == "h264_rkmpp":
+        opts += [f"-rc_mode:v:{idx}", "AVBR"]
+    elif encoder == "h264_nvenc":
+        opts += [f"-rc:v:{idx}", "cbr"]
+    return opts
+
+def parse_replace_audios(text):
+    """解析 --replace-audio "a1.mp3,a2.mp3,..." 返回 [路径, ...]，并对本地路径做存在性预检。"""
+    audios = [p.strip() for p in text.split(",") if p.strip()]
+    if not audios:
+        print("[错误] --replace-audio 不能为空", file=sys.stderr)
+        sys.exit(1)
+    return audios
+
+def resolve_ra_mode(ra_mode, audios, is_dry_run):
+    """根据用户指定 + 音频数量，解析最终 ra_mode（single/per/seq）。
+    - 单文件：强制 single（用户指定 per/seq 给警告但继续，按 single 执行）
+    - 多文件：必须显式给出 per 或 seq，否则报错
+    返回最终 mode 字符串。
+    """
+    if len(audios) == 1:
+        if ra_mode is not None and ra_mode != "single":
+            print(f"[警告] 只给了 1 个音频文件，--ra-mode {ra_mode} 没有意义，按 single 执行", file=sys.stderr)
+        return "single"
+    # 多文件
+    if ra_mode is None:
+        print("[错误] 给了多个替换音频时，必须显式指定 --ra-mode per（按档分配）或 seq（顺序循环共用）", file=sys.stderr)
+        sys.exit(1)
+    if ra_mode not in ("single", "per", "seq"):
+        print(f"[错误] 非法的 --ra-mode {ra_mode!r}，可选：single / per / seq", file=sys.stderr)
+        sys.exit(1)
+    return ra_mode
+
+def probe_has_audio(url, timeout=15):
+    """用 ffprobe 探测输入是否含音频流。
+    
+    返回 True(有音频) / False(无音频) / None(探测失败，结果未知)。
+    对网络流与 /dev 设备套一层超时限制，避免直播源/设备把探测卡死。
+    """
+    cmd = ["ffprobe", "-v", "error", "-select_streams", "a",
+           "-show_entries", "stream=index", "-of", "csv=p=0"]
+    if url.startswith(NET_SCHEMES) or url.startswith("/dev/"):
+        # 微秒：10s 内拿不到结果就放弃，交回 auto 逻辑兜底
+        cmd += ["-rw_timeout", "10000000"]
+    cmd += ["-i", url]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if r.returncode != 0:
+        return None
+    return bool(r.stdout.strip())
+
+def resolve_src_audio(args, url, warn):
+    """判断某个源是否有音频流，受 --audio 控制。
+
+    auto : ffprobe 探测；探测失败/超时时按“有音频”处理并给出警告
+           （保持旧行为，不会把本来有声音的源静音；用户可显式 --audio none 修正）
+    none : 强制按“无音频”处理，生成纯视频 HLS（源确实没声音、探测又不方便时用）
+    force: 强制按“有音频”处理（保持旧行为，不做探测），但如果视频确实无音频，则会报错
+    """
+    mode = getattr(args, "audio", "auto")
+    if mode == "none":
+        return False
+    if mode == "force":
+        warn.append(f"强制按“有音频”处理，若该源确实没有声音，执行则会报错")
+        return True
+    h = probe_has_audio(url)
+    if h is None:
+        warn.append(f"无法探测源音频流（ffprobe 失败/超时）：{url}；已按“有音频”处理。"
+                    f"若该源确实没有声音，请加 --audio none 生成纯视频命令")
+        return True
+    if not h:
+        warn.append(f"源无音频流：{url} → 该档将只输出视频（不含音频轨）")
+    return h
+
+def parse_inputs(text):
+    """解析 --inputs "name=url,name=url,..." 返回 [(name, url), ...]（高→低）。"""
+    items = []
+    for seg in text.split(","):
+        seg = seg.strip()
+        if not seg:
+            continue
+        if "=" not in seg:
+            print(f"[错误] --inputs 格式错误，每个项需要是 名称=地址：'{seg}'", file=sys.stderr)
+            sys.exit(1)
+        name, url = seg.split("=", 1)
+        name = name.strip().lower()
+        url = url.strip()
+        if not name or not url:
+            print(f"[错误] --inputs 项中名称或地址为空：'{seg}'", file=sys.stderr)
+            sys.exit(1)
+        items.append((name, url))
+    if not items:
+        print("[错误] --inputs 不能为空", file=sys.stderr)
+        sys.exit(1)
+    names = [n for n, _ in items]
+    dup = sorted({n for i, n in enumerate(names) if n in names[:i]})
+    if dup:
+        print(f"[错误] --inputs 档位名重复：{', '.join(dup)}", file=sys.stderr)
+        sys.exit(1)
+    return items
+
+# ========================================================================
+# 模式一：单源 split 转码
+# ========================================================================
+def build_groups_single(args):
+    """返回 (groups, presets, copy_top, audio_copy, gop, mode_desc, warn)。"""
+    warn = []
+
+    # ---- 解析档位 ----
+    names = [p.strip().lower() for p in args.presets.split(",") if p.strip()]
+    if not names:
+        print("[错误] --presets 不能为空", file=sys.stderr)
+        sys.exit(1)
+    for n in names:
+        if n not in PRESETS:
+            print(f"[错误] 未知档位 '{n}'，可用：{', '.join(PRESETS.keys())}", file=sys.stderr)
+            sys.exit(1)
+
+    presets = []
+    for n in names:
+        w, h, br = PRESETS[n]
+        presets.append((n, w, h, br))
+
+    # ---- 码率覆盖 ----
+    if args.bitrates:
+        brs = parse_bitrates(args.bitrates)
+        if len(brs) != len(presets):
+            print(f"[错误] --bitrates 数量({len(brs)})与档位数量({len(presets)})不一致", file=sys.stderr)
+            sys.exit(1)
+        presets = [(n, w, h, brs[i]) for i, (n, w, h, _) in enumerate(presets)]
+
+    # ---- 索引 0（copy 档）单独指定码率（只用于算 BANDWIDTH）----
+    if args.top_bitrate:
+        tb = parse_bitrates(args.top_bitrate)
+        if len(tb) != 1:
+            print("[错误] --top-bitrate 只接受一个值，如 20000k", file=sys.stderr)
+            sys.exit(1)
+        n, w, h, _ = presets[0]
+        presets[0] = (n, w, h, tb[0])
+
+    N = len(presets)
+    copy_top = args.copy_top
+    audio_copy = args.audio_copy
+    encoder = HW_ENCODERS[args.hw]
+    fps = args.fps
+    hls_time = args.hls_time
+    audio_br = args.audio_bitrate
+    out_dir = args.output.rstrip("/")
+    src = args.input
+    mf, bf_ = args.maxrate_factor, args.bufsize_factor
+
+    # ---- 替换音频 ----
+    replace_audios = parse_replace_audios(args.replace_audio) if args.replace_audio else []
+    src_is_file = not src.startswith(NET_SCHEMES) and not src.startswith("/dev/")
+
+    # ---- 源是否有音频流（决定是否产出音频轨）----
+    # 替换音频模式下音频来自外部文件，与原音无关，一律按“有音频”处理
+    if replace_audios:
+        src_has_audio = True
+    else:
+        src_has_audio = resolve_src_audio(args, src, warn)
+
+    # ---- 先判 is_vod（后面 seq 分支要用）----
+    is_vod = bool(args.vod) or (src_is_file and args.no_re)
+
+    ra_mode = None
+    audio_input_list = []   # 每个元素是一个 list，内部是加入命令的参数（单源模式下简单用路径）
+    seq_input_flags = []    # 每个音频输入的额外前缀参数（如 -stream_loop -1）
+    ra_for_print = []       # 打印用
+    seq_need_filter = False
+    seq_concat_file = None
+    if replace_audios:
+        audio_copy = False  # 统一重编码为 AAC，保证 TS 兼容
+        for ap in replace_audios:
+            if not ap.startswith(NET_SCHEMES) and not os.path.exists(ap):
+                if args.run:
+                    print(f"[错误] 替换音频文件不存在：{ap}", file=sys.stderr)
+                    sys.exit(1)
+                else:
+                    warn.append(f"替换音频文件不存在（执行时会报错）：{ap}")
+        ra_mode = resolve_ra_mode(args.ra_mode, replace_audios, not args.run)
+
+        if args.audio_loop is None:
+            # 替换音频默认都循环（BGM/轮换音轨覆盖整个视频长度）；
+            # 等长配音用 --no-audio-loop 关闭。
+            audio_loop = True
+        else:
+            audio_loop = args.audio_loop
+
+        if ra_mode == "single":
+            audio_input_list = [replace_audios[0]]
+            seq_input_flags = [["-stream_loop", "-1"] if audio_loop else []]
+            ra_for_print = [f"替换→{replace_audios[0]} (single, 全部档位共用)" for _ in range(N)]
+        elif ra_mode == "per":
+            audio_input_list = list(replace_audios)
+            seq_input_flags = [["-stream_loop", "-1"] if audio_loop else [] for _ in replace_audios]
+            ra_for_print = []
+            for i in range(N):
+                idx = i % len(replace_audios)
+                ra_for_print.append(f"替换→{replace_audios[idx]} (per, 档{idx % len(replace_audios)+1})")
+        elif ra_mode == "seq":
+            # seq 模式：直播/VOD 统一方案——启动时一次性 concat + 编码成标准 aac m4a
+            # (注意不能 -c copy：MP3 VBR 直接塞进 m4a 会因 CTS/DTS 不匹配报错)，
+            # 然后对这一个标准单文件用 -stream_loop -1 真无限循环。
+            # 单文件的 -stream_loop -1 经过验证不会提前 EOF 退出，稳定可靠。
+            #   VOD：配合 -shortest 视频播完即停；
+            #   直播：不设 -shortest，和 RTSP/RTMP 源一样永远跑。
+            if args.run:
+                os.makedirs(out_dir, exist_ok=True)
+            seq_concat_file = os.path.join(out_dir, ".seq_once.m4a")
+            audio_input_list = [seq_concat_file]
+            seq_input_flags = [["-stream_loop", "-1"] if audio_loop else []]
+            seq_need_filter = False
+            joined = "→".join(os.path.basename(p) for p in replace_audios)
+            tag = "→∞循环(预拼标准aac单文件)"
+            ra_for_print = [f"替换→顺序轮换({joined}{tag})(seq, 所有档共用)" for _ in range(N)]
+        else:
+            audio_input_list = []
+            seq_input_flags = []
+    else:
+        audio_loop = None
+        seq_need_filter = False
+        seq_concat_file = None
+
+    # ---- GOP：优先用 --gop（帧数），否则 fps × --gop-seconds ----
+    if args.gop:
+        gop = args.gop
+        gop_seconds = gop / fps
+    else:
+        gop_seconds = args.gop_seconds
+        gop = int(round(fps * gop_seconds))
+    if gop <= 0:
+        print("[错误] GOP 必须为正数", file=sys.stderr)
+        sys.exit(1)
+    if abs(hls_time / gop_seconds - round(hls_time / gop_seconds)) > 1e-6:
+        warn.append(
+            f"GOP={gop_seconds:g}s 不能整除 hls_time={hls_time}s，"
+            f"分片长度会不整齐；建议改成 {hls_time}s 或它能整除的值"
+        )
+
+    # 索引 0 固定给最高清档；其余从 1 开始
+    vid_from_filter = list(range(1, N)) if copy_top else list(range(0, N))
+    # 替换音频时不再 asplit 源音频；源本身无音频时也不生成音频滤镜链
+    aud_from_filter = list(range(1, N)) if (not replace_audios and src_has_audio) else []
+
+    # ---------- filter_complex ----------
+    filt_parts = []
+    if vid_from_filter:
+        labels = "".join(f"[v{i}]" for i in vid_from_filter)
+        seg = [f"[0:v]split={len(vid_from_filter)}{labels}"]
+        for i in vid_from_filter:
+            _, w, h, _ = presets[i]
+            seg.append(f"[v{i}]scale={w}:{h}[v{i}out]")
+        filt_parts.append("; ".join(seg))
+    if aud_from_filter:
+        alabels = "".join(f"[a{i}]" for i in aud_from_filter)
+        filt_parts.append(f"[0:a]asplit={len(aud_from_filter)}{alabels}")
+    filter_complex = "; ".join(filt_parts)
+
+    # ---------- 命令分组 ----------
+    groups = []
+
+    head = ["ffmpeg"]
+    if args.loglevel:
+        head += ["-loglevel", args.loglevel]
+    if (args.re or src.startswith(NET_SCHEMES)) and not src.startswith("/dev/"):
+        head.append("-re")
+    
+    head += ["-i", src]
+
+    # 替换音频：追加额外 -i，源在 0
+    audio_input_indexes = []
+    if replace_audios:
+        next_idx = 1
+        for j, ap in enumerate(audio_input_list):
+            flags = seq_input_flags[j] if j < len(seq_input_flags) else []
+            head += list(flags)
+            head += ["-i", ap]
+            audio_input_indexes.append(next_idx)
+            next_idx += 1
+    groups.append(head)
+
+    if filter_complex:
+        groups.append(["-filter_complex", filter_complex])
+
+    # ---- 视频映射（先索引 0，再 1..N-1）----
+    top_name, top_w, top_h, top_br = presets[0]
+    if copy_top:
+        # -b:v:0 只用于计算 master 里的 BANDWIDTH，不会触发重编码
+        groups.append(["-map", "0:v", "-c:v:0", "copy", "-b:v:0", fmt_rate(top_br)])
+    else:
+        g = ["-map", "[v0out]", "-c:v:0", encoder, "-b:v:0", fmt_rate(top_br)]
+        g += encoder_opts(0, top_br, encoder, mf, bf_, args.x264_preset)
+        groups.append(g)
+
+    for i in range(1, N):
+        name, w, h, br = presets[i]
+        g = ["-map", f"[v{i}out]", f"-c:v:{i}", encoder, f"-b:v:{i}", fmt_rate(br)]
+        g += encoder_opts(i, br, encoder, mf, bf_, args.x264_preset)
+        groups.append(g)
+
+    # ---- 音频映射（先索引 0，再 1..N-1）----
+    if replace_audios:
+        # 全部从替换音频输入里取，统一转 AAC
+        for i in range(N):
+            if ra_mode == "single":
+                aidx = audio_input_indexes[0]
+                map_label = f"{aidx}:a"
+            elif ra_mode == "seq":
+                if seq_need_filter:
+                    # 直播滤镜方案：从滤镜输出取
+                    map_label = "[seqout]"
+                else:
+                    # VOD 单文件方案：从唯一音频输入取
+                    aidx = audio_input_indexes[0]
+                    map_label = f"{aidx}:a"
+            else:  # per
+                aidx = audio_input_indexes[i % len(audio_input_list)]
+                map_label = f"{aidx}:a"
+            groups.append(["-map", map_label, f"-c:a:{i}", "aac",
+                           f"-b:a:{i}", audio_br])
+        # 排除源音频，避免原音轨混进输出（加 ? 容错：源无音频也不报错）
+        groups.append(["-map", "-0:a?"])
+    else:
+        if src_has_audio:
+            if audio_copy:
+                groups.append(["-map", "0:a?", "-c:a:0", "copy"])
+            else:
+                groups.append(["-map", "0:a?", "-c:a:0", "aac", "-b:a:0", audio_br])
+
+            for i in range(1, N):
+                groups.append(["-map", f"[a{i}]", f"-c:a:{i}", "aac", f"-b:a:{i}", audio_br])
+        else:
+            # 源无音频流：纯视频输出，不产生任何音频轨
+            ra_for_print = ["无音频→纯视频输出（源无音频流）" for _ in range(N)]
+
+    # 所有 AAC 音频统一 48kHz（只写一次全局 -ar，避免重复警告；无音频时不写）
+    if replace_audios or (src_has_audio and not audio_copy):
+        groups.append(["-ar", "48000"])
+
+    # ---- 通用编码参数 ----
+    groups.append(["-bf", "0", "-g", str(gop), "-keyint_min", str(gop),
+                   "-r", str(fps), "-sc_threshold", "0"])
+
+    # ---- HLS 参数：直播 vs 点播（is_vod 已在前面判定）----
+    # VOD + 循环音频（single/per/seq）时加 -shortest，
+    # 否则视频播完音频还在无限循环，进程永远不退出
+    if is_vod and replace_audios and audio_loop:
+        groups.append(["-shortest"])
+
+    if is_vod:
+        # ===== VOD 点播：保留全片、不删分片、清单列全 =====
+        hls_flags = ["independent_segments"]
+        if args.append_list:
+            hls_flags.append("append_list")
+        groups.append(["-f", "hls", "-hls_time", str(hls_time),
+                       "-hls_playlist_type", "vod",
+                       "-hls_flags", "+".join(hls_flags)])
+        # VOD 不写 hls_list_size（默认 0 列全）、不写 hls_delete_threshold
+        # 不写 delete_segments，所有分片永久保留
+    else:
+        # ===== 直播模式：滚动清单、自动删旧分片 =====
+        hls_flags = ["delete_segments", "independent_segments"]
+        if args.append_list:
+            hls_flags.append("append_list")
+        groups.append(["-f", "hls", "-hls_time", str(hls_time),
+                       "-hls_list_size", str(args.hls_list_size),
+                       "-hls_flags", "+".join(hls_flags)])
+        groups.append(["-hls_delete_threshold", str(args.hls_delete_threshold)])
+
+    groups.append(["-hls_segment_filename", f"{out_dir}/%v/seg_%03d.ts"])
+    groups.append(["-master_pl_name", "master.m3u8"])
+    if replace_audios or src_has_audio:
+        vsm = " ".join(f"v:{i},a:{i},name:{presets[i][0]}" for i in range(N))
+    else:
+        # 无音频：var_stream_map 里不能出现 a:i，否则匹配不到流直接报错
+        vsm = " ".join(f"v:{i},name:{presets[i][0]}" for i in range(N))
+    groups.append(["-var_stream_map", vsm])
+    groups.append([f"{out_dir}/%v/index.m3u8"])
+
+    mode_desc = "单源 split 转码" + ("（VOD 点播）" if is_vod else "（直播）")
+    # preconcat: VOD seq 模式下需要先一次性 concat copy 拼出一轮音频
+    if replace_audios and ra_mode == "seq" and seq_concat_file:
+        preconcat = (list(replace_audios), seq_concat_file)
+    else:
+        preconcat = None
+    return groups, presets, copy_top, audio_copy, gop, mode_desc, is_vod, warn, ra_for_print, preconcat
+
+# ========================================================================
+# 模式二：多源 copy 打包（新增）
+# ========================================================================
+def build_groups_multi(args):
+    """
+    多源模式：每个清晰度一个独立输入流，全部 -map N:v/a -c copy 做无损 remux，
+    不经过 filter_complex，CPU≈0。
+    索引规则：0 留给第一个（最高档），其余 1、2、3...；var_stream_map 索引与
+    输入顺序、输出顺序严格一一对应。
+    """
+    warn = []
+
+    inputs = parse_inputs(args.inputs)
+    N = len(inputs)
+
+    # ---- 解析各档码率（用于 BANDWIDTH）----
+    if args.bitrates:
+        brs = parse_bitrates(args.bitrates)
+        if len(brs) != N:
+            print(f"[错误] --bitrates 数量({len(brs)})与 --inputs 数量({N})不一致", file=sys.stderr)
+            sys.exit(1)
+    else:
+        # 档名在预设里就用预设码率，不在就按 5000k 默认
+        brs = []
+        for name, _ in inputs:
+            if name in PRESETS:
+                brs.append(PRESETS[name][2])
+            else:
+                brs.append(5_000_000)
+                warn.append(f"档位 '{name}' 不在预设中，码率默认按 5000k（可用 --bitrates 覆盖）")
+
+    # 若用户单独指定了最高档码率（--top-bitrate），覆盖第一个
+    if args.top_bitrate:
+        tb = parse_bitrates(args.top_bitrate)
+        if len(tb) != 1:
+            print("[错误] --top-bitrate 只接受一个值", file=sys.stderr)
+            sys.exit(1)
+        brs[0] = tb[0]
+
+    # 生成 presets 列表（和单源模式结构一致，便于打印/创建目录）
+    presets = []
+    for i, (name, url) in enumerate(inputs):
+        if name in PRESETS:
+            w, h, _ = PRESETS[name]
+        else:
+            w, h = 0, 0  # 未知分辨率，由源决定
+        presets.append((name, w, h, brs[i]))
+
+    fps = args.fps
+    hls_time = args.hls_time
+    audio_br = args.audio_bitrate
+    out_dir = args.output.rstrip("/")
+
+    # ---- GOP 校验（和单源保持一致）----
+    if args.gop:
+        gop = args.gop
+        gop_seconds = gop / fps
+    else:
+        gop_seconds = args.gop_seconds
+        gop = int(round(fps * gop_seconds))
+    if gop <= 0:
+        print("[错误] GOP 必须为正数", file=sys.stderr)
+        sys.exit(1)
+    if abs(hls_time / gop_seconds - round(hls_time / gop_seconds)) > 1e-6:
+        warn.append(
+            f"GOP={gop_seconds:g}s 不能整除 hls_time={hls_time}s，"
+            f"分片可能不整齐；建议改成 {hls_time}s 或它能整除的值"
+        )
+
+    video_codec = args.video_codec  # 默认 copy
+    force_audio_aac = args.force_audio_aac
+    # 多源模式下：--audio-copy/--no-audio-copy 与 --force-audio-aac 同义
+    if not args.audio_copy:
+        force_audio_aac = True
+
+    # ---- 替换音频 ----
+    replace_audios = parse_replace_audios(args.replace_audio) if args.replace_audio else []
+    # 先判 is_vod
+    all_file = all(not u.startswith(NET_SCHEMES) for _, u in inputs)
+    is_vod = bool(args.vod) or (all_file and args.no_re)
+
+    # ---- 各源是否有音频流（决定每一档是否产出音频轨）----
+    # 替换音频模式与原音无关，一律视为“有音频”（音频来自外部文件）
+    if replace_audios:
+        src_audio = {u: True for _, u in inputs}
+    else:
+        src_audio = {}
+        for _, u in inputs:
+            if u not in src_audio:
+                src_audio[u] = resolve_src_audio(args, u, warn)
+
+    ra_mode = None
+    audio_input_list = []
+    seq_input_flags = []
+    ra_for_print = []
+    seq_need_filter = False
+    seq_concat_file = None
+    if replace_audios:
+        force_audio_aac = True  # 统一重编码为 AAC
+        for ap in replace_audios:
+            if not ap.startswith(NET_SCHEMES) and not os.path.exists(ap):
+                if args.run:
+                    print(f"[错误] 替换音频文件不存在：{ap}", file=sys.stderr)
+                    sys.exit(1)
+                else:
+                    warn.append(f"替换音频文件不存在（执行时会报错）：{ap}")
+        ra_mode = resolve_ra_mode(args.ra_mode, replace_audios, not args.run)
+        if args.audio_loop is None:
+            audio_loop = True
+        else:
+            audio_loop = args.audio_loop
+        if ra_mode == "single":
+            audio_input_list = [replace_audios[0]]
+            seq_input_flags = [["-stream_loop", "-1"] if audio_loop else []]
+            ra_for_print = [f"替换→{os.path.basename(replace_audios[0])} (single, 全部档位共用)" for _ in range(N)]
+        elif ra_mode == "per":
+            audio_input_list = list(replace_audios)
+            seq_input_flags = [["-stream_loop", "-1"] if audio_loop else [] for _ in replace_audios]
+            ra_for_print = []
+            for i in range(N):
+                idx = i % len(replace_audios)
+                ra_for_print.append(f"替换→{os.path.basename(replace_audios[idx])} (per, 档{idx+1})")
+        elif ra_mode == "seq":
+            # seq 模式：直播/VOD 统一方案——启动时一次性 concat + 编码成标准 aac m4a
+            # (注意不能 -c copy：MP3 VBR 直接塞进 m4a 会因 CTS/DTS 不匹配报错)，
+            # 然后对这一个标准单文件用 -stream_loop -1 真无限循环。
+            # 单文件的 -stream_loop -1 经过验证不会提前 EOF 退出，稳定可靠。
+            if args.run:
+                os.makedirs(out_dir, exist_ok=True)
+            seq_concat_file = os.path.join(out_dir, ".seq_once.m4a")
+            audio_input_list = [seq_concat_file]
+            seq_input_flags = [["-stream_loop", "-1"] if audio_loop else []]
+            seq_need_filter = False
+            joined = "→".join(os.path.basename(p) for p in replace_audios)
+            tag = "→∞循环(预拼单文件，零转码)"
+            ra_for_print = [f"替换→顺序轮换({joined}{tag})(seq, 所有档共用)" for _ in range(N)]
+        else:
+            audio_input_list = []
+            seq_input_flags = []
+    else:
+        audio_loop = None
+        seq_need_filter = False
+        seq_concat_file = None
+
+    # ---------- 组装命令 ----------
+    groups = []
+
+    head = ["ffmpeg"]
+    if args.loglevel:
+        head += ["-loglevel", args.loglevel]
+
+    # 是否加 -re：默认对网络直播源加，本地文件不加；--no-re 强制不加；--re 强制加
+    all_net = all(u.startswith(NET_SCHEMES) for _, u in inputs)
+    all_file = all(not u.startswith(NET_SCHEMES) for _, u in inputs)
+    use_re = False
+    if args.no_re:
+        use_re = False
+    elif args.re:
+        use_re = True
+    elif all_net:
+        use_re = True
+    elif all_file:
+        use_re = False
+    else:
+        # 混合：有网络有本地，默认加 -re（直播场景）
+        use_re = True
+        warn.append("检测到网络流和本地文件混合输入，默认启用 -re（可用 --no-re 关闭）")
+
+    if use_re:
+        head.append("-re")
+    
+    # ---- 多个 -i ----
+    for _, url in inputs:
+        head += ["-i", url]
+
+    # 替换音频：追加额外 -i，编号从 N 开始（0..N-1 是视频源）
+    audio_input_indexes = []
+    if replace_audios:
+        next_idx = N
+        for j, ap in enumerate(audio_input_list):
+            flags = seq_input_flags[j] if j < len(seq_input_flags) else []
+            head += list(flags)
+            head += ["-i", ap]
+            audio_input_indexes.append(next_idx)
+            next_idx += 1
+    groups.append(head)
+
+    # ---- filter_complex 仅视频部分，音频直接concat demuxer输入，不进滤镜 ----
+    # （多源模式默认 copy，不需要视频滤镜）
+
+    # ---- 视频/音频映射 ----
+    # 音频输出流单独计数：某档源无音频时，不会让后面档位的音频索引错位
+    audio_out_idx = 0
+    variant_audio_idx = {}
+    for i in range(N):
+        br = brs[i]
+        if video_codec == "copy":
+            groups.append(["-map", f"{i}:v", f"-c:v:{i}", "copy", f"-b:v:{i}", fmt_rate(br)])
+        else:
+            enc = HW_ENCODERS.get(args.hw, video_codec)
+            g = ["-map", f"{i}:v", f"-c:v:{i}", enc, f"-b:v:{i}", fmt_rate(br)]
+            g += encoder_opts(i, br, enc, args.maxrate_factor, args.bufsize_factor, args.x264_preset)
+            groups.append(g)
+        if replace_audios:
+            if ra_mode == "single":
+                map_label = f"{audio_input_indexes[0]}:a"
+            elif ra_mode == "seq":
+                if seq_need_filter:
+                    map_label = "[seqout]"
+                else:
+                    map_label = f"{audio_input_indexes[0]}:a"
+            else:  # per
+                map_label = f"{audio_input_indexes[i % len(audio_input_list)]}:a"
+            groups.append(["-map", map_label, f"-c:a:{audio_out_idx}", "aac",
+                           f"-b:a:{audio_out_idx}", audio_br])
+            variant_audio_idx[i] = audio_out_idx
+            audio_out_idx += 1
+        elif src_audio[inputs[i][1]]:
+            if force_audio_aac:
+                groups.append(["-map", f"{i}:a?", f"-c:a:{audio_out_idx}", "aac",
+                               f"-b:a:{audio_out_idx}", audio_br])
+            else:
+                groups.append(["-map", f"{i}:a?", f"-c:a:{audio_out_idx}", "copy"])
+            variant_audio_idx[i] = audio_out_idx
+            audio_out_idx += 1
+        # else: 该源无音频流 → 这一档只输出视频，不产生音频轨
+
+    # 替换音频时，排除所有源输入里的音频（加 ? 容错：源无音频流也不报错）
+    if replace_audios:
+        for i in range(N):
+            groups.append(["-map", f"-{i}:a?"])
+
+    # 所有 AAC 音频统一 48kHz（只写一次全局 -ar，避免重复警告；全部无音频时不写）
+    if audio_out_idx > 0 and (replace_audios or force_audio_aac):
+        groups.append(["-ar", "48000"])
+
+    # ---- 通用参数 ----
+    groups.append(["-bf", "0", "-g", str(gop), "-keyint_min", str(gop),
+                   "-r", str(fps), "-sc_threshold", "0"])
+
+    # ---- HLS 参数：直播 vs 点播（is_vod 已在前面判定）----
+    # VOD + 循环音频时加 -shortest，防止视频播完音频还在无限循环
+    if is_vod and replace_audios and audio_loop:
+        groups.append(["-shortest"])
+
+    if is_vod:
+        hls_flags = ["independent_segments"]
+        if args.append_list:
+            hls_flags.append("append_list")
+        groups.append(["-f", "hls", "-hls_time", str(hls_time),
+                       "-hls_playlist_type", "vod",
+                       "-hls_flags", "+".join(hls_flags)])
+    else:
+        hls_flags = ["delete_segments", "independent_segments"]
+        if args.append_list:
+            hls_flags.append("append_list")
+        groups.append(["-f", "hls", "-hls_time", str(hls_time),
+                       "-hls_list_size", str(args.hls_list_size),
+                       "-hls_flags", "+".join(hls_flags)])
+        groups.append(["-hls_delete_threshold", str(args.hls_delete_threshold)])
+
+    groups.append(["-hls_segment_filename", f"{out_dir}/%v/seg_%03d.ts"])
+    groups.append(["-master_pl_name", "master.m3u8"])
+    vsm_parts = []
+    for i in range(N):
+        if i in variant_audio_idx:
+            vsm_parts.append(f"v:{i},a:{variant_audio_idx[i]},name:{presets[i][0]}")
+        else:
+            # 该档源无音频：只声明视频，避免 a:i 匹配不到流而报错
+            vsm_parts.append(f"v:{i},name:{presets[i][0]}")
+    vsm = " ".join(vsm_parts)
+    groups.append(["-var_stream_map", vsm])
+    groups.append([f"{out_dir}/%v/index.m3u8"])
+
+    mode_desc = "多源 copy 打包（零转码）" + ("（VOD 点播）" if is_vod else "（直播）")
+    copy_top = True          # 多源模式下每档都是 copy
+    audio_copy = not force_audio_aac
+    if not replace_audios:
+        missing = [i for i in range(N) if i not in variant_audio_idx]
+        if missing:
+            ra_for_print = ["" for _ in range(N)]
+            for i in missing:
+                ra_for_print[i] = "无音频→纯视频输出（源无音频流）"
+    if replace_audios and ra_mode == "seq" and seq_concat_file:
+        preconcat = (list(replace_audios), seq_concat_file)
+    else:
+        preconcat = None
+    return groups, presets, copy_top, audio_copy, gop, mode_desc, is_vod, warn, ra_for_print, preconcat
+
+# ========================================================================
+# 命令渲染
+# ========================================================================
+def quote(tok):
+    """需要时给 token 加双引号，保证可直接粘贴执行。"""
+    if tok and any(c in tok for c in " ;[]"):
+        return f'"{tok}"'
+    return tok
+
+def render(groups):
+    return " \\\n  ".join(" ".join(quote(t) for t in g) for g in groups)
+
+# ========================================================================
+# 入口
+# ========================================================================
+def main():
+    ap = argparse.ArgumentParser(
+        description="HLS ABR 多清晰度打包命令生成器（索引 0=最高档，其余从 1 开始）",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        
+    )
+
+    # ---- 输入源（两种模式互斥自动识别）----
+    ap.add_argument("-i", "--input", default=None, help="【单源模式】输入源（rtmp/rtsp/srt/http/本地文件）")
+    ap.add_argument("--inputs", default=None,
+                    help="【多源模式】多个成品源，格式 名称=地址,名称=地址,... （如 4k=rtsp://a/4k,1080p=rtsp://a/1080p）")
+    ap.add_argument("-o", "--output", required=True, help="HLS 输出目录，如 /mnt/hls")
+
+    # ---- 单源模式专属 ----
+    ap.add_argument("--presets", default="1080p,720p,480p",
+                    help=f"[单源] 档位列表，逗号分隔（高→低）。可用：{','.join(PRESETS.keys())}")
+    ap.add_argument("--copy-top", dest="copy_top", action="store_true", default=True,
+                    help="[单源] 索引 0（最高清）视频直接 copy（默认开启）")
+    ap.add_argument("--no-copy-top", dest="copy_top", action="store_false",
+                    help="[单源] 索引 0 也转码（源非 H.264 或分辨率不匹配时用）")
+    ap.add_argument("--hw", default="software", choices=HW_ENCODERS.keys(),
+                    help="[单源] 视频编码器：software(默认)/rkmpp/vaapi/nvenc")
+    ap.add_argument("--x264-preset", default="superfast",
+                    help="[单源] libx264 preset（none,不配置该参数; 不配置时ffmpeg 默认medium，速度慢，直播时会卡）")
+    ap.add_argument("--maxrate-factor", type=float, default=1.0, help="maxrate = b:v × 系数（默认 1.0）")
+    ap.add_argument("--bufsize-factor", type=float, default=2.0, help="bufsize = b:v × 系数（默认 2.0）")
+
+    # ---- 多源模式专属 ----
+    ap.add_argument("--no-re", action="store_true", help="[多源/文件] 不添加 -re（本地文件做 VOD 打包时用，全速处理）")
+    ap.add_argument("--video-codec", default="copy",
+                    help="[多源] 视频编码器（默认 copy，零转码；一般不需要改）")
+    ap.add_argument("--force-audio-aac", action="store_true",
+                    help="[多源] 强制所有音频重编码为 AAC（源音频非 AAC 如 Opus/MP3 时用，视频仍 copy）")
+    ap.add_argument("--audio", default="auto", choices=["auto", "none", "force"],
+                    help="源音频处理方式：auto=自动探测源有无音频流（默认，无音频时自动生成纯视频 HLS）；"
+                         "none=强制按无音频处理，直接生成纯视频命令（源没声音且探测失败时用）；"
+                         "force=强制按有音频处理（保持旧行为、不探测），如果确实无音频则会报错")
+
+    # ---- 通用参数，外部音频替换 ----
+    ap.add_argument("--replace-audio", "--ra", dest="replace_audio", default=None,
+                    help="用外部音频替换原音轨。可传一个或多个(逗号分隔)。"
+                         "分配方式由 --ra-mode 决定（single=共用一个；per=按档分配；seq=顺序循环共用）。"
+                         "例：--ra bgm.mp3  或  --ra a1.mp3,a2.mp3,a3.mp3 --ra-mode per/seq")
+    ap.add_argument("--ra-mode", dest="ra_mode", default=None,
+                    choices=["single", "per", "seq"],
+                    help="替换音频分配模式：single=所有档共用同一个；"
+                         "per=按档索引循环分配（每个清晰度一个）；"
+                         "seq=多音频按 1→2→3 顺序循环轮流播放、所有档共用同一条轮换音轨。"
+                         "只传 1 个音频时自动按 single 处理；多文件必须显式指定 per 或 seq。")
+    ap.add_argument("--audio-loop", dest="audio_loop", action="store_true", default=None,
+                    help="替换音频时强制 -stream_loop -1 循环播放（直播场景默认已开启，VOD 默认关闭）")
+    ap.add_argument("--no-audio-loop", dest="audio_loop", action="store_false",
+                    help="替换音频时不循环（适用于 VOD 且音频长度 >= 视频长度 的场合）")
+    
+    # ---- 通用参数 ----
+    ap.add_argument("--bitrates", default=None,
+                    help="自定义各档码率，逗号分隔，支持 k/m，如 20000k,9000k,5000k,2500k")
+    ap.add_argument("--top-bitrate", default=None,
+                    help="索引 0（最高档）用来算 BANDWIDTH 的码率，如 20000k（默认取该档预设/给定值）")
+    ap.add_argument("--fps", type=int, default=30, help="帧率（默认 30）")
+    ap.add_argument("--gop", type=int, default=None, help="GOP 帧数（覆盖 --gop-seconds），如 30")
+    ap.add_argument("--gop-seconds", type=float, default=1.0,
+                    help="GOP 秒数（默认 1.0，即 30fps 下 -g 30；须能整除 hls-time）")
+    ap.add_argument("--hls-time", type=int, default=3, help="切片时长秒（默认 3）")
+    ap.add_argument("--hls-list-size", type=int, default=20, help="m3u8 保留分片数（默认 20）")
+    ap.add_argument("--hls-delete-threshold", type=int, default=10, help="滚出清单后多留几片（默认 10）")
+    ap.add_argument("--audio-bitrate", default="128k", help="音频码率（默认 128k，仅转码时生效）")
+    ap.add_argument("--audio-copy", dest="audio_copy", action="store_true", default=True,
+                    help="索引 0 音频直接 copy（默认开启）")
+    ap.add_argument("--no-audio-copy", dest="audio_copy", action="store_false",
+                    help="索引 0 音频也转成 AAC（源音频是 Opus 等时用）")
+    ap.add_argument("--re", action="store_true", help="强制添加 -re（默认对直播源已自动加）")
+    ap.add_argument("--append-list", action="store_true", help="追加到已有分片清单（重启不丢历史）加 -hls_flags append_list")
+    ap.add_argument("--vod", action="store_true", help="强制 VOD 点播模式：不删分片、清单列全、加 hls_playlist_type=vod")
+    ap.add_argument("--loglevel", default="", help="ffmpeg 日志级别：quiet/error/warning/info/debug（默认不加）")
+    ap.add_argument("--dry-run", action="store_true", help="只打印命令（默认行为）")
+    ap.add_argument("--run", action="store_true", help="直接执行")
+
+    args = ap.parse_args()
+
+    # ---- 模式选择 ----
+    has_input = bool(args.input)
+    has_inputs = bool(args.inputs)
+    if has_input and has_inputs:
+        print("[错误] -i/--input 与 --inputs 不能同时使用：单源模式用 -i，多源模式用 --inputs", file=sys.stderr)
+        sys.exit(1)
+    if not has_input and not has_inputs:
+        print("[错误] 必须指定输入：单源模式用 -i <源>，多源模式用 --inputs 'name=url,name=url,...'", file=sys.stderr)
+        sys.exit(1)
+
+    if has_inputs:
+        groups, presets, copy_top, audio_copy, gop, mode_desc, is_vod, warn, ra_for_print, preconcat = build_groups_multi(args)
+    else:
+        groups, presets, copy_top, audio_copy, gop, mode_desc, is_vod, warn, ra_for_print, preconcat = build_groups_single(args)
+
+    cmd = [t for g in groups for t in g]
+
+    # ---------- 打印 ----------
+    print("=" * 72)
+    print(f"📋 工作模式：{mode_desc}")
+    print("=" * 72)
+    print("📋 生成的 FFmpeg 命令：")
+    print("-" * 72)
+    print(render(groups))
+    print()
+    print("🎞️  档位配置（索引 0 固定为最高档，其余从 1 开始）：")
+    for i, (name, w, h, br) in enumerate(presets):
+        if w and h:
+            res = f"{w}x{h:<5}"
+        else:
+            res = "(源分辨率)"
+        if i == 0:
+            vtag = "copy（省CPU）" if copy_top else "转码"
+            atag = "copy" if audio_copy else "aac"
+        else:
+            if has_inputs and args.video_codec == "copy":
+                vtag = "copy（省CPU）"
+            else:
+                vtag = "转码"
+            atag = "copy" if (has_inputs and not args.force_audio_aac and args.audio_copy) else "aac"
+        # 替换音频 / 源无音频时，按各档实际分配显示
+        if ra_for_print:
+            atag = ra_for_print[i] or atag
+        print(f"  索引 {i}: {name:6s} {res} {fmt_rate(br):>7s}  视频={vtag}  音频={atag}")
+    print()
+    print(f"📁 输出目录：{args.output}")
+    print(f"🎬 GOP：{gop} 帧（{args.fps}fps × {args.gop_seconds:g}s）；分片：{args.hls_time}s")
+    if has_input:
+        print(f"🔧 视频编码器：{HW_ENCODERS[args.hw]}")
+    else:
+        print(f"🔧 视频编码器：{args.video_codec}（多源默认 copy 零转码）")
+    print(f"📺 模式：{'VOD 点播（保留全片 / 不删分片）' if is_vod else '直播（滚动清单 / 自动删旧分片）'}")
+    print(f"🧩 变量目录：  {args.output.rstrip('/')}/%v/  （%v 展开为档位名）")
+    for w_ in warn:
+        print(f"⚠️  {w_}")
+    print()
+
+    if not args.run:
+        print("💡 只打印不执行。加 --run 直接跑，或复制上面的命令手动执行。")
+        return 0
+
+    # ---------- 执行前准备：seq 模式（直播/VOD）先一次性流拷贝拼接一轮音频 ----------
+    def preconcat_seq_audio(audios, out_file):
+        """用 concat demuxer 把多段音频拼成一轮可循环的标准 aac m4a（秒级完成）。
+        注意：不能用 -c:a copy——MP3 VBR 时间戳直接 copy 进 MP4/M4A 容器会因
+        CTS/DTS 不匹配报错；这里一次性硬编码成 aac 128k/48k/stereo，
+        后续主进程就可以对这一个标准 m4a 做 -stream_loop -1 无限循环，稳定可靠。"""
+        import tempfile
+        list_fd, list_path = tempfile.mkstemp(prefix="seqlist_", suffix=".txt", dir=os.path.dirname(out_file) or ".")
+        try:
+            with os.fdopen(list_fd, "w", encoding="utf-8") as f:
+                for ap in audios:
+                    escaped = ap.replace("'", "'\\''")
+                    f.write(f"file '{escaped}'\n")
+            cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                   "-f", "concat", "-safe", "0", "-i", list_path,
+                   "-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2",
+                   "-movflags", "+faststart", out_file]
+            print(f"🔧 预拼接 seq 一轮音频 → {os.path.basename(out_file)}（一次性编码为 aac）")
+            subprocess.run(cmd, check=True)
+        finally:
+            try: os.remove(list_path)
+            except OSError: pass
+
+    # ---------- 执行 ----------
+    os.makedirs(args.output, exist_ok=True)
+    for name, _, _, _ in presets:
+        os.makedirs(os.path.join(args.output, name), exist_ok=True)
+    if preconcat is not None:
+        audios, cfile = preconcat
+        if not os.path.exists(cfile):
+            preconcat_seq_audio(audios, cfile)
+        else:
+            print(f"🔧 已存在预拼接文件 {os.path.basename(cfile)}，跳过（删除可重建）")
+    print("▶️  开始执行...")
+    try:
+        subprocess.run(cmd, check=True)
+    except KeyboardInterrupt:
+        print("\n⏹️  已停止。")
+        return 130
+    except subprocess.CalledProcessError as e:
+        print(f"❌ FFmpeg 退出码：{e.returncode}", file=sys.stderr)
+        return e.returncode
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
+    
