@@ -47,8 +47,8 @@ stopasgroup = true ;确保关闭supervisord时停止所有相关子进程
 killasgroup = true ;确保关闭supervisord时停止所有相关子进程
 
 ;日志目录必须事先存在，不然会出错
-;stdout_logfile = /python/logs/push_mediamtx_out.log
-;stderr_logfile = /python/logs/push_mediamtx_err.log
+;stdout_logfile = /tmp/Multi_Resolution_out.log
+;stderr_logfile = /tmp/Multi_Resolution_err.log
 EOF
 ```
 
