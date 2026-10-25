@@ -1,22 +1,29 @@
-
+### 安装及初始化配置
 ```
 apt install -y build-essential python3-dev libevent-dev && \
 python3 -m pip install supervisor && \
 mkdir -p /etc/supervisor && \
 echo_supervisord_conf > /etc/supervisor/supervisord.ini && \
 cp /etc/supervisor/supervisord.ini /etc/supervisor/supervisord.ini.bak && \
-grep -Ev '^\s*[;#]' /etc/supervisor/supervisord.ini.bak > /etc/supervisor/supervisord.ini
+grep -Ev '^\s*[;#]' /etc/supervisor/supervisord.ini.bak | cat -s > /etc/supervisor/supervisord.ini
 ```
 
+### 配置主配置
+```
 cat >> /etc/supervisor/supervisord.ini <<EOF
-#web管理界面
+# web管理界面
 [inet_http_server]
 port = 0.0.0.0:8000
 username = admin
 password = admin
+
+# 引入需要管理的程序配置文件
 [include]
 files = /etc/supervisor/my_config/*.ini
 EOF
+```
+
+### 配置子程序配置项
 ```
 mkdir -p /etc/supervisor/my_config && \
 cat > /etc/supervisor/my_config/ffmpeg.ini <<EOF
@@ -44,3 +51,10 @@ killasgroup = true ;确保关闭supervisord时停止所有相关子进程
 ;stderr_logfile = /python/logs/push_mediamtx_err.log
 EOF
 ```
+
+### 运行
+```
+TZ=Asia/Shanghai /usr/local/bin/supervisord -c /etc/supervisor/supervisord.ini
+```
+
+
