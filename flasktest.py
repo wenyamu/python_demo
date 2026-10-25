@@ -29,7 +29,7 @@ def index_webrtc2():
 
 @app.route("/")
 def index_a():
-  return render_template('index.html', info="我是一个模板文件")
+  return send_file('/python/html/index.html')
 
 @app.route("/temp")
 def index_b():

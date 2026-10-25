@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>多清晰度直播（ABR）完整实现流程</title>
+<script src="https://aisearch-task.bj.bcebos.com/static/tailwindcss-3.4.17.js"></script>
+<script src="https://aisearch-task.bj.bcebos.com/static/echarts-5.6.0.min.js"></script>
+<style>
+  :root{
+    --brand-rgb: 37,99,235;
+    --mint-rgb: 16,185,129;
+    --ink: #0f172a;
+    --ink-soft: #334155;
+  }
+  html{-webkit-text-size-adjust:100%;}
+  body{
+    font-family:'PingFang SC','HarmonyOS Sans SC','Microsoft YaHei','Hiragino Sans GB',sans-serif;
+    color:var(--ink);
+    background:
+      radial-gradient(1100px 500px at 88% -6%, rgba(16,185,129,.13), transparent 60%),
+      radial-gradient(900px 460px at 4% 4%, rgba(37,99,235,.12), transparent 62%),
+      linear-gradient(160deg,#f8fafc 0%, #ffffff 45%, #f0fdfa 100%);
+    min-height:100vh;
+  }
+  .font-display{font-family:'Songti SC','STSong','SimSun',Georgia,serif;}
+  .font-mono{font-family:'SF Mono','Menlo','Consolas','Courier New',monospace;}
+
+  .code-block{
+    font-family:'SF Mono','Menlo','Consolas','Courier New',monospace;
+    font-size:13px; line-height:1.7;
+    background:#0f172a; color:#e2e8f0;
+    border-radius:14px; padding:18px 18px;
+    overflow-x:auto; white-space:pre;
+    border:1px solid #1e293b;
+    box-shadow:0 18px 40px -22px rgba(15,23,42,.55);
+  }
+  .code-block .cmt{color:#7dd3fc;}
+  .code-block .flag{color:#86efac;}
+  .code-block .val{color:#fcd34d;}
+  .code-block .leak{color:#0f172a;background:#38bdf8;border-radius:4px;padding:0 3px;font-weight:700;}
+
+  .card-surface{
+    background:rgba(255,255,255,.86);
+    backdrop-filter:blur(10px);
+    border:1px solid rgba(226,232,240,.9);
+    box-shadow:0 20px 46px -30px rgba(15,23,42,.4);
+  }
+  .step-index{
+    font-variant-numeric:tabular-nums;
+  }
+  .pipe-node{
+    transition:transform .35s cubic-bezier(.2,.8,.2,1), box-shadow .35s cubic-bezier(.2,.8,.2,1);
+  }
+  .pipe-node:hover{transform:translateY(-4px);box-shadow:0 22px 42px -24px rgba(15,23,42,.5);}
+
+  .arrow-h::after{
+    content:'';position:absolute;right:-18px;top:50%;transform:translateY(-50%);
+    width:0;height:0;border-top:7px solid transparent;border-bottom:7px solid transparent;
+    border-left:11px solid #94a3b8;
+  }
+  @media (max-width:900px){ .arrow-h::after{display:none;} }
+
+  .rise{animation:rise .7s cubic-bezier(.2,.8,.2,1) both;}
+  @keyframes rise{from{opacity:.92;transform:translateY(14px);}to{opacity:1;transform:translateY(0);}}
+  .rise:nth-child(2){animation-delay:.06s}
+  .rise:nth-child(3){animation-delay:.12s}
+  .rise:nth-child(4){animation-delay:.18s}
+  .rise:nth-child(5){animation-delay:.24s}
+  .rise:nth-child(6){animation-delay:.3s}
+
+  .ladder-btn{
+    transition:all .25s cubic-bezier(.2,.8,.2,1);
+    border:1.5px solid #cbd5e1; background:#fff; color:#334155;
+  }
+  .ladder-btn:hover{border-color:#2563eb;color:#1d4ed8;}
+  .ladder-btn.active{
+    background:#1d4ed8;border-color:#1d4ed8;color:#fff;
+    box-shadow:0 12px 26px -14px rgba(29,78,216,.85);
+  }
+  .ladder-btn.active .badge{background:rgba(255,255,255,.22);color:#fff;}
+  .badge{background:#eff6ff;color:#1d4ed8;}
+
+  ::selection{background:rgba(37,99,235,.2);}
+</style>
+</head>
+<body>
+
+<main class="mx-auto w-full max-w-[1120px] px-4 md:px-8 py-10 md:py-16">
+
+  <!-- ===== HERO ===== -->
+  <header class="rise mb-10 md:mb-14">
+    <div class="inline-flex items-center gap-2 rounded-full bg-[rgba(var(--brand-rgb),0.08)] px-4 py-1.5 text-[13px] font-medium text-[#1d4ed8] tracking-wide">
+      <svg class="w-[16px] h-[16px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h10M4 18h7"/></svg>
+      自建直播平台 · 清晰度切换 · HLS 多码率
+    </div>
+
+    <h1 class="font-display mt-5 text-[32px] leading-[1.15] md:text-[52px] md:leading-[1.1] font-bold tracking-tight text-slate-900">
+      多清晰度直播（ABR）<br class="hidden md:block">完整实现流程
+    </h1>
+
+    <p class="mt-5 max-w-[760px] text-[16px] md:text-[17px] leading-relaxed text-slate-600">
+      从「一路源流」到「用户自己挑 720p / 1080p / 2K / 4K」，中间到底发生了什么、要不要推多路、
+      HLS 是怎么把这些路串起来的 —— 下面这张全链路图和 6 个必查的坑，一次讲透。
+    </p>
+
+    <div class="mt-7 flex flex-wrap gap-3 text-[13px]">
+      <span class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-emerald-700 font-medium">核心结论：推 1 路，服务器转出 N 路</span>
+      <span class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-blue-700 font-medium">索引文件：master.m3u8</span>
+      <span class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-slate-600 font-medium">播放器：hls.js 自动 + 手动</span>
+    </div>
+  </header>
+
+  <!-- ===== 1. 先破题 ===== -->
+  <section class="rise mb-12">
+    <div class="flex items-center gap-3 mb-5">
+      <span class="step-index font-mono text-[26px] md:text-[32px] font-bold text-[#cbd5e1]">01</span>
+      <h2 class="font-display text-[22px] md:text-[28px] font-bold text-slate-900">先回答你最关心的：是不是要推多路？</h2>
+    </div>
+
+    <p class="text-[16px] leading-relaxed text-slate-700 mb-6">
+      你的直觉方向是对的 —— <strong>最终确实会有多路流给用户选</strong>。但这多路流<strong>不该由你的推流端推出来</strong>，
+      而是应该由服务器（或转码器）从一路源流<strong>转码</strong>出来。这是两种做法，差别很大：
+    </p>
+
+    <div class="grid gap-4 md:grid-cols-2">
+      <div class="card-surface rounded-2xl p-5 md:p-6 border-l-4 border-l-rose-400">
+        <div class="flex items-center gap-2 mb-3">
+          <svg class="w-[18px] h-[18px] shrink-0 text-rose-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>
+          <h3 class="text-[17px] font-bold text-slate-900">做法 A：推流端推多路（不推荐）</h3>
+        </div>
+        <p class="text-[15px] leading-relaxed text-slate-600">
+          香橙派上同时压缩 720p、1080p、2K、4K 四条流再推上去。结果就是：<strong>上行带宽翻倍、CPU 直接跑满、画面掉帧</strong>。
+          香橙派这种 ARM 小设备根本扛不住 4K 编码，属于用最弱的机器干最重的活。
+        </p>
+      </div>
+
+      <div class="card-surface rounded-2xl p-5 md:p-6 border-l-4 border-l-emerald-400">
+        <div class="flex items-center gap-2 mb-3">
+          <svg class="w-[18px] h-[18px] shrink-0 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>
+          <h3 class="text-[17px] font-bold text-slate-900">做法 B：推 1 路，服务器转多路（推荐）</h3>
+        </div>
+        <p class="text-[15px] leading-relaxed text-slate-600">
+          香橙派<strong>只推一路原始流</strong>（比如 1080p 或直接摄像头原画），到了服务器再用 FFmpeg 一次性转出多档分辨率。
+          推流端只干一次活，转码交给更强的机器做。
+        </p>
+      </div>
+    </div>
+
+    <div class="mt-6 rounded-2xl bg-[rgba(var(--brand-rgb),0.06)] border border-blue-100 p-5">
+      <p class="text-[15px] leading-relaxed text-slate-700">
+        <strong class="text-blue-700">一句话总结：</strong>
+        你说的「推多路」在物理上确实存在，但它发生在<strong>转码环节</strong>，而不是采集推流环节。
+        你需要的技术名字叫 <strong>ABR（自适应码率 / Adaptive Bitrate）</strong>，
+        它的载体就是 <strong>HLS 的 Master Playlist（主播放列表）</strong>。
+      </p>
+    </div>
+  </section>
+
+  <!-- ===== 2. 全链路流程图 ===== -->
+  <section class="rise mb-12">
+    <div class="flex items-center gap-3 mb-5">
+      <span class="step-index font-mono text-[26px] md:text-[32px] font-bold text-[#cbd5e1]">02</span>
+      <h2 class="font-display text-[22px] md:text-[28px] font-bold text-slate-900">完整链路：从摄像头到用户选清晰度</h2>
+    </div>
+
+    <p class="text-[16px] leading-relaxed text-slate-700 mb-6">
+      整条链路一共 6 个环节，前 2 步是你已经在做的，后面 4 步才是「多清晰度」的关键。
+    </p>
+
+    <div class="space-y-3">
+
+      <div class="pipe-node card-surface rounded-2xl p-4 md:p-5 flex items-start gap-4">
+        <div class="shrink-0 w-[42px] h-[42px] rounded-xl bg-slate-900 text-white flex items-center justify-center font-mono font-bold text-[16px]">1</div>
+        <div class="flex-1 min-w-0">
+          <h3 class="text-[16px] font-bold text-slate-900 mb-1">采集 + 编码（香橙派 / 摄像头）</h3>
+          <p class="text-[15px] leading-relaxed text-slate-600">摄像头采集画面，本地压成 <strong>一路 H.264</strong>，音频一路 AAC。这一路就是"母带"。</p>
+          <div class="mt-2 flex flex-wrap gap-2 text-[12px]">
+            <span class="badge rounded-md px-2 py-1 font-medium">1 路视频</span>
+            <span class="badge rounded-md px-2 py-1 font-medium">1 路音频</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-center"><svg class="w-[20px] h-[20px] text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></div>
+
+      <div class="pipe-node card-surface rounded-2xl p-4 md:p-5 flex items-start gap-4">
+        <div class="shrink-0 w-[42px] h-[42px] rounded-xl bg-slate-900 text-white flex items-center justify-center font-mono font-bold text-[16px]">2</div>
+        <div class="flex-1 min-w-0">
+          <h3 class="text-[16px] font-bold text-slate-900 mb-1">推流到服务器（RTMP / SRT）</h3>
+          <p class="text-[15px] leading-relaxed text-slate-600">香橙派把这一路流推给你的服务器（MediaMTX / SRS / Nginx-RTMP）。<strong>只推一路，省上行带宽</strong>。</p>
+        </div>
+      </div>
+
+      <div class="flex justify-center"><svg class="w-[20px] h-[20px] text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></div>
+
+      <div class="pipe-node card-surface rounded-2xl p-4 md:p-5 flex items-start gap-4 border-l-4 border-l-blue-500">
+        <div class="shrink-0 w-[42px] h-[42px] rounded-xl bg-[#1d4ed8] text-white flex items-center justify-center font-mono font-bold text-[16px]">3</div>
+        <div class="flex-1 min-w-0">
+          <h3 class="text-[16px] font-bold text-slate-900 mb-1">转码：一路变多路 <span class="text-[12px] font-medium text-blue-600 ml-1">★关键</span></h3>
+          <p class="text-[15px] leading-relaxed text-slate-600">
+            用 FFmpeg（软编或硬编）把这一路母带<strong>同时转出 720p / 1080p / 2K / 4K</strong>，
+            每档用不同的码率。转码是 1→N，不是采集端 1→N。
+          </p>
+          <div class="mt-2 flex flex-wrap gap-2 text-[12px]">
+            <span class="rounded-md bg-blue-50 px-2 py-1 font-medium text-blue-700">720p · ~2.5 Mbps</span>
+            <span class="rounded-md bg-blue-50 px-2 py-1 font-medium text-blue-700">1080p · ~5 Mbps</span>
+            <span class="rounded-md bg-blue-50 px-2 py-1 font-medium text-blue-700">2K · ~10 Mbps</span>
+            <span class="rounded-md bg-blue-50 px-2 py-1 font-medium text-blue-700">4K · ~20 Mbps</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex justify-center"><svg class="w-[20px] h-[20px] text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></div>
+
+      <div class="pipe-node card-surface rounded-2xl p-4 md:p-5 flex items-start gap-4 border-l-4 border-l-blue-500">
+        <div class="shrink-0 w-[42px] h-[42px] rounded-xl bg-[#1d4ed8] text-white flex items-center justify-center font-mono font-bold text-[16px]">4</div>
+        <div class="flex-1 min-w-0">
+          <h3 class="text-[16px] font-bold text-slate-900 mb-1">切片 + 生成各级清单 <span class="text-[12px] font-medium text-blue-600 ml-1">★关键</span></h3>
+          <p class="text-[15px] leading-relaxed text-slate-600">
+            每一路都被切成固定时长的小分片（<code class="font-mono text-[13px] bg-slate-100 px-1.5 py-0.5 rounded text-rose-600">.ts</code> 或 <code class="font-mono text-[13px] bg-slate-100 px-1.5 py-0.5 rounded text-rose-600">.m4s</code>），
+            并各自生成一份<strong>该档位的播放清单</strong>（media playlist，例如 <code class="font-mono text-[13px] bg-slate-100 px-1.5 py-0.5 rounded">720p/index.m3u8</code>）。
+          </p>
+        </div>
+      </div>
+
+      <div class="flex justify-center"><svg class="w-[20px] h-[20px] text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></div>
+
+      <div class="pipe-node card-surface rounded-2xl p-4 md:p-5 flex items-start gap-4 border-l-4 border-l-emerald-500">
+        <div class="shrink-0 w-[42px] h-[42px] rounded-xl bg-emerald-600 text-white flex items-center justify-center font-mono font-bold text-[16px]">5</div>
+        <div class="flex-1 min-w-0">
+          <h3 class="text-[16px] font-bold text-slate-900 mb-1">汇总成 Master Playlist（总菜单）<span class="text-[12px] font-medium text-emerald-600 ml-1">★关键</span></h3>
+          <p class="text-[15px] leading-relaxed text-slate-600">
+            生成一个 <code class="font-mono text-[13px] bg-slate-100 px-1.5 py-0.5 rounded text-emerald-700">master.m3u8</code>，
+            里面<strong>不存分片</strong>，只记录"有哪几档清晰度、每档多少带宽、多少分辨率、去哪个子清单取"。
+            <strong>这就是把多路"结合起来"的那份文件。</strong>
+          </p>
+        </div>
+      </div>
+
+      <div class="flex justify-center"><svg class="w-[20px] h-[20px] text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg></div>
+
+      <div class="pipe-node card-surface rounded-2xl p-4 md:p-5 flex items-start gap-4 border-l-4 border-l-emerald-500">
+        <div class="shrink-0 w-[42px] h-[42px] rounded-xl bg-emerald-600 text-white flex items-center justify-center font-mono font-bold text-[16px]">6</div>
+        <div class="flex-1 min-w-0">
+          <h3 class="text-[16px] font-bold text-slate-900 mb-1">播放器：自动切换 + 用户手选</h3>
+          <p class="text-[15px] leading-relaxed text-slate-600">
+            播放器只请求 <code class="font-mono text-[13px] bg-slate-100 px-1.5 py-0.5 rounded text-emerald-700">master.m3u8</code>，
+            读到所有档位后：<strong>默认按网速自动升降档（ABR）</strong>，同时把档位列表丢给"清晰度"按钮，<strong>让用户手动锁定</strong>。
+          </p>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ===== 3. Master Playlist 结构 ===== -->
+  <section class="rise mb-12">
+    <div class="flex items-center gap-3 mb-5">
+      <span class="step-index font-mono text-[26px] md:text-[32px] font-bold text-[#cbd5e1]">03</span>
+      <h2 class="font-display text-[22px] md:text-[28px] font-bold text-slate-900">"路"是怎么被结合起来的：三层结构</h2>
+    </div>
+
+    <p class="text-[16px] leading-relaxed text-slate-700 mb-5">
+      HLS 多码率是<strong>三层嵌套</strong>，理解这三层，你就理解了全部：
+    </p>
+
+    <div class="grid gap-3 md:grid-cols-3 mb-6">
+      <div class="rounded-xl border border-slate-200 bg-white p-4">
+        <div class="text-[12px] font-mono text-slate-400 mb-1">第 1 层 · 总入口</div>
+        <div class="font-mono text-[14px] font-bold text-emerald-700 mb-2">master.m3u8</div>
+        <p class="text-[14px] leading-relaxed text-slate-600">列出所有清晰度档位（带宽 / 分辨率 / 编码 / 子清单地址）。用户和播放器只看这一份。</p>
+      </div>
+      <div class="rounded-xl border border-slate-200 bg-white p-4">
+        <div class="text-[12px] font-mono text-slate-400 mb-1">第 2 层 · 每档清单</div>
+        <div class="font-mono text-[14px] font-bold text-blue-700 mb-2">720p/index.m3u8</div>
+        <p class="text-[14px] leading-relaxed text-slate-600">描述本档位有哪些分片、时长多少、下一个分片去哪取。每档一份。</p>
+      </div>
+      <div class="rounded-xl border border-slate-200 bg-white p-4">
+        <div class="text-[12px] font-mono text-slate-400 mb-1">第 3 层 · 分片</div>
+        <div class="font-mono text-[14px] font-bold text-rose-600 mb-2">seg_00001.ts</div>
+        <p class="text-[14px] leading-relaxed text-slate-600">真正的音视频数据，小文件，可被 CDN 缓存，播放器一个个拉。</p>
+      </div>
+    </div>
+
+    <div class="code-block mb-4"><span class="cmt"># master.m3u8 —— 你手写的（或 FFmpeg 自动生成的）总菜单，长这样：</span>
+<span class="leak">#EXTM3U</span>
+<span class="leak">#EXT-X-VERSION:3</span>
+
+<span class="cmt"># 720p 档位：带宽 2.5Mbps，分辨率 1280x720</span>
+#EXT-X-STREAM-INF:<span class="flag">BANDWIDTH</span>=<span class="val">2500000</span>,<span class="flag">RESOLUTION</span>=<span class="val">1280x720</span>,<span class="flag">CODECS</span>=<span class="val">"avc1.64001f,mp4a.40.2"</span>
+720p/index.m3u8
+
+<span class="cmt"># 1080p 档位：带宽 5Mbps</span>
+#EXT-X-STREAM-INF:<span class="flag">BANDWIDTH</span>=<span class="val">5000000</span>,<span class="flag">RESOLUTION</span>=<span class="val">1920x1080</span>,<span class="flag">CODECS</span>=<span class="val">"avc1.640028,mp4a.40.2"</span>
+1080p/index.m3u8
+
+<span class="cmt"># 2K 档位：带宽 10Mbps</span>
+#EXT-X-STREAM-INF:<span class="flag">BANDWIDTH</span>=<span class="val">10000000</span>,<span class="flag">RESOLUTION</span>=<span class="val">2560x1440</span>,<span class="flag">CODECS</span>=<span class="val">"avc1.640033,mp4a.40.2"</span>
+2k/index.m3u8
+
+<span class="cmt"># 4K 档位：带宽 20Mbps</span>
+#EXT-X-STREAM-INF:<span class="flag">BANDWIDTH</span>=<span class="val">20000000</span>,<span class="flag">RESOLUTION</span>=<span class="val">3840x2160</span>,<span class="flag">CODECS</span>=<span class="val">"avc1.640034,mp4a.40.2"</span>
+4k/index.m3u8</div>
+
+    <div class="rounded-2xl bg-amber-50 border border-amber-200 p-4">
+      <p class="text-[15px] leading-relaxed text-amber-900">
+        <strong>划重点：</strong>把多路"结合"起来，靠的就是这份 master.m3u8 —— 它是<strong>纯文本索引文件</strong>，不是视频。
+        播放器拿到它，就知道"有 4 档可选，每档去哪拿"，用户点"1080p"时播放器就切到第 2 条子清单继续拉。
+      </p>
+    </div>
+  </section>
+
+  <!-- ===== 4. FFmpeg 命令 ===== -->
+  <section class="rise mb-12">
+    <div class="flex items-center gap-3 mb-5">
+      <span class="step-index font-mono text-[26px] md:text-[32px] font-bold text-[#cbd5e1]">04</span>
+      <h2 class="font-display text-[22px] md:text-[28px] font-bold text-slate-900">一条 FFmpeg 命令，转出 N 路 + 自动生成总菜单</h2>
+    </div>
+
+    <p class="text-[16px] leading-relaxed text-slate-700 mb-5">
+      不用手写 master.m3u8。FFmpeg 的 <code class="font-mono text-[13px] bg-slate-100 px-1.5 py-0.5 rounded text-rose-600">-var_stream_map</code>
+      会一边转码、一边切片、一边把 master.m3u8 生成好：
+    </p>
+
+    <div class="code-block mb-4">ffmpeg -re -i <span class="val">rtmp://your-server/live/source</span> \
+  -filter_complex \
+   <span class="val">"[0:v]split=2[v1][v2]; \
+    [v1]scale=1280:720[v1out]; \
+    [v2]scale=1920:1080[v2out]; \
+    [0:a]asplit=2[a1][a2]"</span> \
+  <span class="cmt"># 2 档视频，各自的码率</span>
+  -map <span class="val">"[v1out]"</span> -c:v:0 libx264 -b:v:0 2500k  -maxrate:v:0 2675k  -bufsize:v:0 5000k \
+  -map <span class="val">"[v2out]"</span> -c:v:1 libx264 -b:v:1 5000k  -maxrate:v:1 5350k  -bufsize:v:1 10000k \
+  <span class="cmt"># 音频编码</span>
+  -map "[a1]" -c:a:0 aac -b:a 128k -ar 48000 \
+  -map "[a2]" -c:a:1 aac -b:a 128k -ar 48000 \
+  <span class="cmt"># 禁用b帧，关键帧对齐（GOP 必须一致，否则切换花屏）</span>
+  -bf 0 -g 30 -keyint_min 30 \
+  <span class="cmt"># 固定帧率</span>
+  -r 30 -sc_threshold 0 \
+  <span class="cmt"># HLS 切片参数，每个切片3秒，列表固定20个切片</span>
+  -f hls -hls_time 3 -hls_list_size 20 \
+  <span class="cmt"># HLS 切片过期自动删除</span>
+  -hls_flags delete_segments+independent_segments \
+  <span class="cmt"># HLS 过期切片保留最近的10个，防止过度删除</span>
+  -hls_delete_threshold 10 \
+  <span class="cmt"># name 将自动填充占位符 %v</span>
+  -var_stream_map <span class="val">"v:0,a:0,name:720p v:1,a:1,name:1080p"</span> \
+  -master_pl_name <span class="val">master.m3u8</span> \
+  -hls_segment_filename <span class="val">"out/%v/seg_%03d.ts"</span> \
+  <span class="val">"out/%v/index.m3u8"</span></div>
+
+    <div class="grid gap-3 md:grid-cols-2">
+      <div class="rounded-xl border border-slate-200 bg-white p-4">
+        <div class="text-[15px] font-bold text-slate-900 mb-1.5"><code class="font-mono text-[13px] text-blue-700">-var_stream_map</code></div>
+        <p class="text-[14px] leading-relaxed text-slate-600">把"视频第几路 + 音频第几路"打包成一个变体（variant）。<code class="font-mono text-[12px]">v:0,a:0</code> 表示变体 0 = 第 1 路视频 + 第 1 路音频。</p>
+      </div>
+      <div class="rounded-xl border border-slate-200 bg-white p-4">
+        <div class="text-[15px] font-bold text-slate-900 mb-1.5"><code class="font-mono text-[13px] text-blue-700">-master_pl_name</code></div>
+        <p class="text-[14px] leading-relaxed text-slate-600">指定总菜单文件名。生成后，播放器只需要这一份地址即可。</p>
+      </div>
+      <div class="rounded-xl border border-slate-200 bg-white p-4">
+        <div class="text-[15px] font-bold text-slate-900 mb-1.5"><code class="font-mono text-[13px] text-blue-700">%v</code></div>
+        <p class="text-[14px] leading-relaxed text-slate-600">变体编号占位符，用来把不同清晰度分到不同子目录（720p / 1080p …）。</p>
+      </div>
+      <div class="rounded-xl border border-slate-200 bg-white p-4">
+        <div class="text-[15px] font-bold text-slate-900 mb-1.5"><code class="font-mono text-[13px] text-blue-700">-g 30</code></div>
+        <p class="text-[14px] leading-relaxed text-slate-600">GOP 长度（每 30 帧一个关键帧）。<strong>所有档位必须一致</strong>，否则切清晰度会花屏。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 5. 播放器端 ===== -->
+  <section class="rise mb-12">
+    <div class="flex items-center gap-3 mb-5">
+      <span class="step-index font-mono text-[26px] md:text-[32px] font-bold text-[#cbd5e1]">05</span>
+      <h2 class="font-display text-[22px] md:text-[28px] font-bold text-slate-900">播放器端：用户怎么"选"，播放器怎么"自动切"</h2>
+    </div>
+
+    <p class="text-[16px] leading-relaxed text-slate-700 mb-5">
+      网页端用 <strong>hls.js</strong>。它俩件事一次搞定：<strong>默认自动 ABR</strong>，同时把档位列表交给你做"清晰度按钮"。
+      点下面按钮体验一下"手动锁定清晰度"的效果：
+    </p>
+
+    <!-- 交互演示 -->
+    <div class="card-surface rounded-2xl p-5 md:p-6 mb-6">
+      <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <div class="text-[15px] font-bold text-slate-900">清晰度选择（模拟播放器 UI）</div>
+        <div class="text-[13px] font-mono text-slate-500">hls.currentLevel = <span id="lvlVal" class="text-blue-700 font-bold">-1</span></div>
+      </div>
+      <div id="ladder" class="grid grid-cols-2 md:grid-cols-5 gap-2.5">
+        <button class="ladder-btn active rounded-xl px-3 py-3 text-left" data-lvl="-1" data-name="自动">
+          <div class="text-[15px] font-bold">自动</div>
+          <div class="badge rounded-md inline-block mt-1 px-2 py-0.5 text-[11px] font-medium">ABR</div>
+        </button>
+        <button class="ladder-btn rounded-xl px-3 py-3 text-left" data-lvl="0" data-name="720p">
+          <div class="text-[15px] font-bold">720p</div>
+          <div class="badge rounded-md inline-block mt-1 px-2 py-0.5 text-[11px] font-medium">2.5 Mbps</div>
+        </button>
+        <button class="ladder-btn rounded-xl px-3 py-3 text-left" data-lvl="1" data-name="1080p">
+          <div class="text-[15px] font-bold">1080p</div>
+          <div class="badge rounded-md inline-block mt-1 px-2 py-0.5 text-[11px] font-medium">5 Mbps</div>
+        </button>
+        <button class="ladder-btn rounded-xl px-3 py-3 text-left" data-lvl="2" data-name="2K">
+          <div class="text-[15px] font-bold">2K</div>
+          <div class="badge rounded-md inline-block mt-1 px-2 py-0.5 text-[11px] font-medium">10 Mbps</div>
+        </button>
+        <button class="ladder-btn rounded-xl px-3 py-3 text-left" data-lvl="3" data-name="4K">
+          <div class="text-[15px] font-bold">4K</div>
+          <div class="badge rounded-md inline-block mt-1 px-2 py-0.5 text-[11px] font-medium">20 Mbps</div>
+        </button>
+      </div>
+      <p id="lvlHint" class="mt-4 text-[14px] leading-relaxed text-slate-500">
+        当前为<strong class="text-slate-700">自动模式</strong>：hls.js 会根据用户实时网速在 720p ~ 4K 之间自动升降档。
+      </p>
+    </div>
+
+    <div class="code-block mb-4"><span class="cmt">// 前端核心逻辑（hls.js）</span>
+const video = document.getElementById('video');
+const hls = new Hls();
+hls.loadSource(<span class="val">'你的域名/live/master.m3u8'</span>);  <span class="cmt">// 只拉总菜单</span>
+hls.attachMedia(video);
+
+<span class="cmt">// 1) 默认自动 ABR</span>
+hls.currentLevel = -1;
+
+<span class="cmt">// 2) 手动切清晰度</span>
+<span class="cmt">//    -1 = 自动；0 = 最低档；数字越大越清晰（按 master.m3u8 里的顺序）</span>
+function setQuality(level) { hls.currentLevel = level; }
+
+<span class="cmt">// 3) 把档位列表渲染成"清晰度"按钮</span>
+hls.on(Hls.Events.MANIFEST_PARSED, (e, data) =&gt; {
+  data.levels.forEach((lv, i) =&gt; {
+    console.log(i, lv.width + 'x' + lv.height, Math.round(lv.bitrate / 1000) + ' kbps');
+  });
+});</div>
+
+    <div class="grid gap-3 md:grid-cols-2">
+      <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+        <div class="text-[15px] font-bold text-emerald-800 mb-1">自动切换（ABR）</div>
+        <p class="text-[14px] leading-relaxed text-emerald-900/85">
+          hls.js 统计每个分片的下载速度，对比 master.m3u8 里各档的 BANDWIDTH，网差自动降档、网好自动升档。
+          <strong>用户什么都不用管。</strong>
+        </p>
+      </div>
+      <div class="rounded-xl border border-blue-200 bg-blue-50 p-4">
+        <div class="text-[15px] font-bold text-blue-800 mb-1">手动锁定</div>
+        <p class="text-[14px] leading-relaxed text-blue-900/85">
+          设置 <code class="font-mono text-[12px]">hls.currentLevel = N</code> 即锁定某一档（<code class="font-mono text-[12px]">-1</code> 恢复自动）。
+          产品上建议<strong>同时提供"自动 + 手动"</strong>两个入口。
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 6. 带宽现实 ===== -->
+  <section class="rise mb-12">
+    <div class="flex items-center gap-3 mb-5">
+      <span class="step-index font-mono text-[26px] md:text-[32px] font-bold text-[#cbd5e1]">06</span>
+      <h2 class="font-display text-[22px] md:text-[28px] font-bold text-slate-900">先认清"2K / 4K 直播"的带宽与成本现实</h2>
+    </div>
+
+    <p class="text-[16px] leading-relaxed text-slate-700 mb-5">
+      清晰度越高，码率越高，对服务器出口带宽和观众网络的考验越大。下是 H.264 下各档位的典型推荐码率：
+    </p>
+
+    <div class="card-surface rounded-2xl p-4 md:p-6 mb-4">
+      <div id="bitrateChart" class="w-full" style="height:340px;"></div>
+    </div>
+
+    <div class="rounded-2xl bg-rose-50 border border-rose-200 p-4">
+      <p class="text-[15px] leading-relaxed text-rose-900">
+        <strong>现实提醒：</strong>1 路 4K 观众每秒要吃掉约 20 Mbps。如果同时有 100 人在看 4K，
+        就是 <strong>2 Gbps 出口带宽</strong>。所以真实平台一般会：
+        ① 用 H.265 省 30%~50% 带宽；② 上 CDN 分发；③ 4K 只当作"可选高码率档"，不默认开启。
+      </p>
+    </div>
+  </section>
+
+  <!-- ===== 7. 六个坑 ===== -->
+  <section class="rise mb-12">
+    <div class="flex items-center gap-3 mb-5">
+      <span class="step-index font-mono text-[26px] md:text-[32px] font-bold text-[#cbd5e1]">07</span>
+      <h2 class="font-display text-[22px] md:text-[28px] font-bold text-slate-900">六个必查的坑（多码率专属）</h2>
+    </div>
+
+    <div class="grid gap-3 md:grid-cols-2">
+      <div class="card-surface rounded-2xl p-5">
+        <div class="text-[16px] font-bold text-slate-900 mb-1.5">① 关键帧（GOP）没对齐</div>
+        <p class="text-[14px] leading-relaxed text-slate-600">各档位的 I 帧时间点不一致，切清晰度瞬间会<strong>花屏 / 卡顿</strong>。所有档位必须用同一个 <code class="font-mono text-[12px]">-g</code> 值，并加 <code class="font-mono text-[12px]">-sc_threshold 0</code>。</p>
+      </div>
+      <div class="card-surface rounded-2xl p-5">
+        <div class="text-[16px] font-bold text-slate-900 mb-1.5">② BANDWIDTH 数值乱写</div>
+        <p class="text-[14px] leading-relaxed text-slate-600">master.m3u8 里带宽值和真实码率差太多，ABR 判断会完全错乱。<strong>填接近真实码率的值</strong>，别凭感觉估。</p>
+      </div>
+      <div class="card-surface rounded-2xl p-5">
+        <div class="text-[16px] font-bold text-slate-900 mb-1.5">③ 音频每档重编一遍</div>
+        <p class="text-[14px] leading-relaxed text-slate-600">必须，不能共用一路音频。</p>
+      </div>
+      <div class="card-surface rounded-2xl p-5">
+        <div class="text-[16px] font-bold text-slate-900 mb-1.5">④ 分片时长不统一</div>
+        <p class="text-[14px] leading-relaxed text-slate-600">各档 <code class="font-mono text-[12px]">-hls_time</code> 必须一致，分片边界要对齐，否则切换时对不上时间轴。直播建议 2~4 秒。</p>
+      </div>
+      <div class="card-surface rounded-2xl p-5">
+        <div class="text-[16px] font-bold text-slate-900 mb-1.5">⑤ 缺少 H.264 兜底档</div>
+        <p class="text-[14px] leading-relaxed text-slate-600">如果全用 H.265，部分浏览器直接解不了。至少保留一路 H.264 低码率兜底。</p>
+      </div>
+      <div class="card-surface rounded-2xl p-5">
+        <div class="text-[16px] font-bold text-slate-900 mb-1.5">⑥ 直播清单保留策略不一致</div>
+        <p class="text-[14px] leading-relaxed text-slate-600">各档 <code class="font-mono text-[12px]">-hls_list_size</code> 保留的分片数最好一致，否则切换后要的分片已被淘汰，直接断流。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 8. 结合你的环境 ===== -->
+  <section class="rise mb-6">
+    <div class="flex items-center gap-3 mb-5">
+      <span class="step-index font-mono text-[26px] md:text-[32px] font-bold text-[#cbd5e1]">08</span>
+      <h2 class="font-display text-[22px] md:text-[28px] font-bold text-slate-900">落到你的香橙派 + MediaMTX 场景</h2>
+    </div>
+
+    <div class="rounded-2xl bg-[rgba(var(--mint-rgb),0.08)] border border-emerald-200 p-5 md:p-6 mb-4">
+      <p class="text-[15px] leading-relaxed text-slate-700 mb-4">
+        <strong class="text-emerald-800">关键事实：MediaMTX 自己不做转码。</strong>
+        所以"多清晰度"这件事，必须由外部的 FFmpeg 来完成 —— 和前面讲的逻辑一样，
+        让 FFmpeg 从 MediaMTX 拉一路源，转出多档 HLS，再交给 Web 服务器 / CDN 分发。
+      </p>
+      <p class="text-[15px] leading-relaxed text-slate-700">
+        <strong>而香橙派的算力限制</strong>，决定了你本地转 4K 几乎不现实。给你三档务实建议：
+      </p>
+    </div>
+
+    <div class="space-y-3">
+      <div class="card-surface rounded-2xl p-5 border-l-4 border-l-emerald-500">
+        <div class="text-[16px] font-bold text-slate-900 mb-1.5">方案 A（最务实）：本地只做 720p + 1080p 两档</div>
+        <p class="text-[14px] leading-relaxed text-slate-600">
+          香橙派推 1 路原画到 MediaMTX；在同一台服务器（哪怕也是小机器）上跑上面的 FFmpeg 命令，只转 720p + 1080p。
+          两档已经覆盖绝大多数用户的网速，CPU 压力可控。2K/4K 先不上。
+        </p>
+      </div>
+      <div class="card-surface rounded-2xl p-5 border-l-4 border-l-blue-500">
+        <div class="text-[16px] font-bold text-slate-900 mb-1.5">方案 B：需要 4K，就把转码搬到大机器 / 云上</div>
+        <p class="text-[14px] leading-relaxed text-slate-600">
+          香橙派只负责"推一路高质量原流"，转码交给带 GPU（NVENC）或独立算力的服务器 / 云转码服务。
+          这和阿里云、腾讯云"直播转码"是同一个套路 —— 源流进、多档 HLS 出。
+        </p>
+      </div>
+      <div class="card-surface rounded-2xl p-5 border-l-4 border-l-amber-500">
+        <div class="text-[16px] font-bold text-slate-900 mb-1.5">方案 C：只是想"能选"，不必真 4K</div>
+        <p class="text-[14px] leading-relaxed text-slate-600">
+          很多平台标着"4K"其实只是把 1080p 放大。你可以先做 480p / 720p / 1080p 三档，
+          前端 UI 照样给用户"清晰度"按钮，先跑通 ABR 全链路，再按需加档。
+        </p>
+      </div>
+    </div>
+
+    <div class="mt-5 rounded-2xl bg-slate-900 p-5 md:p-6">
+      <div class="text-[13px] font-mono text-emerald-300 mb-3"># 在你的服务器上跑：从 MediaMTX 拉源 → 转两档 HLS → 输出到 Web 目录</div>
+      <div class="code-block !bg-transparent !border-0 !shadow-none !p-0"><span class="cmt"># 在香橙派推流到 MediaMTX 的 live/source</span>
+ffmpeg -re -i rtsp://localhost:8554/live/source \
+  -filter_complex  \
+  "[0:v]split=2[v1][v2]; \
+   [v1]scale=640:360[v1out]; \
+   [v2]scale=1280:720[v2out]; \
+   [0:a]asplit=2[a1][a2]" \
+  -map "[v1out]" -c:v:0 libx264 -b:v:0 1000k -maxrate:v:0 1000k -bufsize:v:0 2000k \
+  -map "[v2out]" -c:v:1 libx264 -b:v:1 2000k -maxrate:v:1 2000k -bufsize:v:1 4000k \
+  -map "[a1]" -c:a:0 aac -b:a 128k -ar 48000 \
+  -map "[a2]" -c:a:1 aac -b:a 128k -ar 48000 \
+  -bf 0 -g 30 -keyint_min 30 -r 30 -sc_threshold 0 \
+  -f hls -hls_time 3 -hls_list_size 20 -hls_flags delete_segments+independent_segments \
+  -hls_delete_threshold 10 \
+  -hls_segment_filename "/mnt/hls/%v/seg_%03d.ts" \
+  -master_pl_name master.m3u8 \
+  -var_stream_map "v:0,a:0,name:360p v:1,a:1,name:720p" \
+  "/mnt/hls/%v/index.m3u8"</div>
+      <p class="mt-4 text-[14px] leading-relaxed text-slate-300">
+        最后把 <strong class="text-white">/mnt/hls/master.m3u8</strong> 用 Nginx 暴露出去，
+        前端 hls.js 加载这个地址 —— 用户就能在 720p / 360p 之间自选或自动切换了。
+      </p>
+    </div>
+    
+    <div class="rounded-2xl bg-[rgba(var(--mint-rgb),0.08)] border border-emerald-200 p-5 md:p-6 mb-4" style="margin-top:20px">
+      <p class="text-[15px] leading-relaxed text-slate-700 mb-4">
+        <strong class="text-emerald-800">多路中有一路可以直接复制，节省 CPU 算力</strong>
+        
+      </p>
+      <p class="text-[15px] leading-relaxed text-slate-700">
+        <strong>比如你推流时视频是 1080p 的, 在生成 1080p、720p 多路时，这其中的 1080p 就可以直接复制</strong>
+      </p>
+    </div>
+    
+    <div class="mt-5 rounded-2xl bg-slate-900 p-5 md:p-6">
+      <div class="code-block !bg-transparent !border-0 !shadow-none !p-0">
+ffmpeg -re -i rtsp://localhost:8554/live/source \
+  -filter_complex \
+  "[0:v]split=1[v1]; \
+   [v1]scale=640:360[v1out]; \
+   [0:a]asplit=1[a1]" \
+  -map 0:v       -c:v:0 copy    -b:v:0 2000k \
+  -map "[v1out]" -c:v:1 libx264 -b:v:1 1000k -maxrate:v:1 1000k -bufsize:v:1 2000k \
+  -map 0:a       -c:a:0 copy \
+  -map "[a1]"    -c:a:1 aac -b:a 128k -ar 48000 \
+  -bf 0 -g 30 -keyint_min 30 -r 30 -sc_threshold 0 \
+  -f hls -hls_time 3 -hls_list_size 20 -hls_flags delete_segments+independent_segments \
+  -hls_delete_threshold 10 \
+  -var_stream_map "v:0,a:0,name:720p v:1,a:1,name:360p" \
+  -master_pl_name master.m3u8 \
+  -hls_segment_filename "/mnt/hls/%v/seg_%03d.ts" \
+  "/mnt/hls/%v/index.m3u8"
+      </div>
+      <p class="mt-4 text-[14px] leading-relaxed text-slate-300">
+        最后把 <strong class="text-white">/mnt/hls/master.m3u8</strong> 用 Nginx 暴露出去，
+        前端 hls.js 加载这个地址 —— 用户就能在 720p / 360p 之间自选或自动切换了。
+      </p>
+    </div>
+    
+    <div class="rounded-2xl bg-rose-50 border border-rose-200 p-4" style="margin-top:20px">
+      <p class="text-[15px] leading-relaxed text-rose-900">
+        <strong>现实提醒：</strong>copy 档的那一路的音视频参数（帧率、关键帧间隔（GOP）、禁用B帧），都要一致。 <strong>copy 档的 BANDWIDTH 参数值会不对，可以给 copy 档显式写一个 -b:v:0 2000k 解决这一问题</strong>。
+      </p>
+    </div>
+    
+  </section>
+
+  <footer class="rise mt-14 pt-6 border-t border-slate-200 text-[13px] text-slate-400">
+    多清晰度直播（ABR）实现全流程 · 全链路架构与配置参考
+  </footer>
+
+</main>
+
+<script>
+  // ---- 清晰度选择模拟 ----
+  (function () {
+    var ladder = document.getElementById('ladder');
+    if (!ladder) return;
+    var valEl = document.getElementById('lvlVal');
+    var hintEl = document.getElementById('lvlHint');
+    var btns = ladder.querySelectorAll('.ladder-btn');
+    btns.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        btns.forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        var lvl = btn.getAttribute('data-lvl');
+        var name = btn.getAttribute('data-name');
+        valEl.textContent = lvl;
+        if (lvl === '-1') {
+          hintEl.innerHTML = '当前为<strong class="text-slate-700">自动模式</strong>：hls.js 会根据用户实时网速在 720p ~ 4K 之间自动升降档。';
+        } else {
+          hintEl.innerHTML = '已手动锁定到 <strong class="text-blue-700">' + name + '</strong>：hls.js 停止自动切换，固定拉取该档位的子清单，直到用户改回"自动"。';
+        }
+      });
+    });
+  })();
+
+  // ---- 码率阶梯柱状图 ----
+  (function () {
+    var dom = document.getElementById('bitrateChart');
+    if (!dom || typeof echarts === 'undefined') return;
+    var chart = echarts.init(dom);
+    var data = [
+      { name: '360p', v: 800 },
+      { name: '480p', v: 1400 },
+      { name: '720p', v: 2500 },
+      { name: '1080p', v: 5000 },
+      { name: '2K', v: 10000 },
+      { name: '4K', v: 20000 }
+    ];
+    chart.setOption({
+      grid: { left: 8, right: 16, top: 40, bottom: 8, containLabel: true },
+      title: {
+        text: 'H.264 各清晰度典型推荐码率（kbps）',
+        left: 0, top: 0,
+        textStyle: { fontSize: 14, fontWeight: 600, color: '#334155' }
+      },
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+        valueFormatter: function (v) { return v + ' kbps'; }
+      },
+      xAxis: {
+        type: 'category',
+        data: data.map(function (d) { return d.name; }),
+        axisLine: { lineStyle: { color: '#cbd5e1' } },
+        axisLabel: { color: '#64748b', fontSize: 12 },
+        axisTick: { show: false }
+      },
+      yAxis: {
+        type: 'value',
+        name: 'kbps',
+        nameTextStyle: { color: '#94a3b8', fontSize: 11 },
+        splitLine: { lineStyle: { color: '#eef2f7' } },
+        axisLabel: { color: '#94a3b8', fontSize: 11 }
+      },
+      series: [{
+        type: 'bar',
+        data: data.map(function (d) { return d.v; }),
+        barWidth: '48%',
+        itemStyle: {
+          borderRadius: [8, 8, 0, 0],
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: '#38bdf8' },
+            { offset: 1, color: '#1d4ed8' }
+          ])
+        },
+        label: {
+          show: true,
+          position: 'top',
+          color: '#1e293b',
+          fontSize: 11,
+          formatter: function (p) { return p.value >= 1000 ? (p.value / 1000) + 'M' : p.value + 'k'; }
+        },
+        animationDuration: 900,
+        animationEasing: 'cubicOut'
+      }]
+    });
+    window.addEventListener('resize', function () { chart.resize(); });
+  })();
+</script>
+</body>
+</html>
