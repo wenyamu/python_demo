@@ -3,14 +3,14 @@
 apt install -y build-essential python3-dev libevent-dev && \
 python3 -m pip install supervisor && \
 mkdir -p /etc/supervisor && \
-echo_supervisord_conf > /etc/supervisor/supervisord.ini && \
-cp /etc/supervisor/supervisord.ini /etc/supervisor/supervisord.ini.bak && \
-grep -Ev '^\s*[;#]' /etc/supervisor/supervisord.ini.bak | cat -s > /etc/supervisor/supervisord.ini
+echo_supervisord_conf > /etc/supervisor/supervisord.conf && \
+cp /etc/supervisor/supervisord.conf /etc/supervisor/supervisord.conf.bak && \
+grep -Ev '^\s*[;#]' /etc/supervisor/supervisord.conf.bak | cat -s > /etc/supervisor/supervisord.conf
 ```
 
 ### 配置主配置
 ```
-cat >> /etc/supervisor/supervisord.ini <<EOF
+cat >> /etc/supervisor/supervisord.conf <<EOF
 # web管理界面
 [inet_http_server]
 port = 0.0.0.0:8000
@@ -26,7 +26,7 @@ EOF
 ### 配置子程序配置项，此配置项不同的程序有不同的设置
 ```
 mkdir -p /etc/supervisor/my_config && \
-cat > /etc/supervisor/my_config/Multi_Resolution.ini <<EOF
+cat > /etc/supervisor/my_config/Multi_Resolution.conf <<EOF
 [program:Multi_Resolution]
 ;标准推荐范围为 0-999 ‌默认值‌：‌999‌ ‌规则‌：‌数值越小，优先级越高，越先启动‌。
 ; priority=11
@@ -54,7 +54,7 @@ EOF
 
 ### 运行
 ```
-TZ=Asia/Shanghai /usr/local/bin/supervisord -c /etc/supervisor/supervisord.ini
+TZ=Asia/Shanghai /usr/local/bin/supervisord -c /etc/supervisor/supervisord.conf
 ```
 
 
