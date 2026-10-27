@@ -19,7 +19,7 @@ password = admin
 
 # 引入需要管理的程序配置文件
 [include]
-files = /etc/supervisor/my_config/*.ini
+files = /etc/supervisor/my_config/*.conf
 EOF
 ```
 
