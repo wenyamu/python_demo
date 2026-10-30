@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>分布式 Supervisor 实时总控台</title>
+<title>分布式 Supervisor 实时总控台（websockets 版）</title>
 <style>
   
   /* ========== 1. 全局变量：默认深色（你现在的夜晚主题） ========== */
@@ -102,11 +102,30 @@
     background: var(--bg-card); border-radius: 10px;
     border: 1px solid var(--border); overflow: hidden;
     box-shadow: var(--shadow-soft);
+    position: relative;/* 加相对定位，给蒙版当父级，不加则蒙版就加在整个页面 */
   }
+  
+  /* 加loading类时显示半透明蒙版 */
+  .server-card.loading::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.4); /* 半透明黑灰蒙版 */
+      border-radius: 0 0 8px 8px;
+      z-index: 10;
+      /* 简单的淡入淡出 */
+      animation: fadeIn 0.1s ease-in;
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  
   .server-header {
     display: flex; justify-content: space-between; align-items: center;
     padding: 10px 18px; background: var(--bg-elevated);
     border-bottom: 1px solid var(--border);
+    
+  }
+  .server-actions {
+    min-height:34px;
   }
   .server-title { display: flex; align-items: center; gap: 8px; }
   .server-title h3 { font-size: 18px; font-weight: 600; }
@@ -114,8 +133,20 @@
   .status-dot { width: 10px; height: 10px; border-radius: 50%; }
   .connected { background: #22c55e; box-shadow: 0 0 8px #22c55e66; }
   .disconnected { background: #ef4444; }
-  .server-stats { font-size: 16px; color: var(--text-secondary); }
-  .server-stats span { margin: 0 2px 0 8px; }
+  
+  /* 新增：独立的统计条，放头部下方、进程列表上方 */
+  .server-stats-bar {
+      display: flex;
+      gap: 8px;
+      padding: 10px 18px;
+      background: var(--bg-elevated);
+      
+      font-size: 16px;          /* ← 字体调小，想更小改10px */
+      color: var(--text-secondary);
+      flex-shrink: 0;
+  }
+  .server-stats-bar span {  font-weight: 600; }
+  
   .count-running { color: #22c55e; font-weight: 600; }
   .count-stopped { color: var(--text-secondary); font-weight: 600; }
   .count-error { color: #ef4444; font-weight: 600; }
@@ -199,7 +230,19 @@
   .btn-stop:not(:disabled):hover { background: #ef4444; color: #fff; }
   .btn-restart { background: #f59e0b22; color: #f59e0b; }
   .btn-restart:not(:disabled):hover { background: #f59e0b; color: #fff; }
-
+  
+  /* 节点刷新按钮 */
+  .btn-supervisor-refresh {
+    background: #22c55e22; color: #22c55e;
+    border: 1px solid #22c55e66;
+    padding: 5px 10px; border-radius: 4px;
+    font-size: 15px; font-weight: 600; cursor: pointer;
+    flex-shrink: 0; margin-left: 2px; transition: all 0.15s;
+  }
+  .btn-supervisor-refresh:hover:not(:disabled) { background: #22c55e; color: white; }
+  .btn-supervisor-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+  
+  /* supervisor 重启按钮 */
   .btn-supervisor-restart {
     background: #ef444422; color: #ef4444;
     border: 1px solid #ef444466;
@@ -214,49 +257,51 @@
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; animation-duration: 0.01ms !important; }
   }
+  
+  
 </style>
 
 </head>
 <body>
 
 <div class="page-header">
-  <h1>🚀 分布式 Supervisor 实时总控台</h1>
+  <h1>🚀 分布式 Supervisor 实时总控台（websockets 版）</h1>
   <button class="theme-toggle" id="themeToggle">🌙 夜晚</button>
 </div>
 
   <div class="overview">
     <div class="stat-item">
-      <span class="stat-icon">🖥️</span>
+      <span class="stat-icon stat-value black">🖥️</span>
       <span class="stat-label">总节点</span>
-      <span class="stat-value gray" id="stat-total-nodes">0</span>
+      <span class="stat-value black" id="stat-total-nodes">0</span>
     </div>
     <div class="stat-item">
-      <span class="stat-icon">🟢</span>
+      <span class="stat-icon stat-value green">●</span>
       <span class="stat-label">在线节点</span>
       <span class="stat-value green" id="stat-online-nodes">0</span>
     </div>
     <div class="stat-item">
-      <span class="stat-icon">🔢</span>
+      <span class="stat-icon stat-value blue">⚙</span>
       <span class="stat-label">进程总数</span>
       <span class="stat-value blue" id="stat-total-procs">0</span>
     </div>
     <div class="stat-item">
-      <span class="stat-icon">▶️</span>
+      <span class="stat-icon stat-value green">►</span>
       <span class="stat-label">运行中</span>
       <span class="stat-value green" id="stat-running-procs">0</span>
     </div>
     <div class="stat-item">
-      <span class="stat-icon">⏹️</span>
+      <span class="stat-icon stat-value gray">■</span>
       <span class="stat-label">已终止</span>
       <span class="stat-value gray" id="stat-dead-procs">0</span>
     </div>
     <div class="stat-item">
-      <span class="stat-icon">ℹ️</span>
+      <span class="stat-icon stat-value red">✖</span>
       <span class="stat-label">启动失败</span>
       <span class="stat-value red" id="stat-error-procs">0</span>
     </div>
     <div class="stat-item">
-      <span class="stat-icon">🔄</span>
+      <span class="stat-icon stat-value orange">☠</span>
       <span class="stat-label">崩溃进程</span>
       <span class="stat-value orange" id="stat-flapping-procs">0</span>
     </div>
@@ -290,19 +335,22 @@
       card.id = `card-${server.ip}`;
       card.innerHTML = `
         <div class="server-header">
-          <div class="server-title">
-            <span class="status-dot disconnected" id="dot-${server.ip}"></span>
-            <h3>${server.name}
-            <span class="server-ip"></span>
-            </h3>
-            <button class="btn-supervisor-restart" id="btn-restart-sv-${server.ip}" onclick="restartSupervisor('${server.ip}')">⚠️ 重启</button>
-          </div>
-          <div class="server-stats">
-            <span class="count-running" id="run-${server.ip}">0</span>运行
-            <span class="count-stopped" id="stop-${server.ip}">0</span>终止
-            <span class="count-error" id="err-${server.ip}">0</span>失败
-            <span class="count-flap" id="flap-${server.ip}">0</span>崩溃
-          </div>
+            <!-- 第一行：左边标题，右边按钮，水平排列 -->
+            <div class="server-title">
+                <span class="status-dot disconnected" id="dot-${server.ip}"></span>
+                <h3>${server.name}<span class="server-ip"></span></h3>
+            </div>
+            <div class="server-actions">
+                <button class="btn btn-supervisor-refresh" id="btn-refresh-${server.ip}" onclick="refreshNode('${server.ip}')">⟲ 刷新节点</button>
+                <button class="btn btn-supervisor-restart" id="btn-restart-sv-${server.ip}" onclick="restartSupervisor('${server.ip}')">⚠︎‌ 重启节点</button>
+            </div>
+            
+        </div>
+        <div class="server-stats-bar">
+            <span class="count-running" id="run-${server.ip}">0</span> 运行
+            <span class="count-stopped" id="stop-${server.ip}">0</span> 停止
+            <span class="count-error" id="err-${server.ip}">0</span> 异常
+            <span class="count-flap" id="flap-${server.ip}">0</span> 崩溃
         </div>
         <div class="proc-list" id="procs-${server.ip}"></div>
         `;
@@ -805,6 +853,41 @@
     localStorage.setItem('theme', next);
     updateBtn(next);
   });
+  
+  // 手动刷新单个节点状态
+  function refreshNode(serverIp) {
+      /* 节点刷新蒙版 */
+      const procList = document.getElementById(`card-${serverIp}`);
+      if (!procList || procList.classList.contains('loading')) return;
+      procList.classList.add('loading'); // 加类，显示蒙版
+      setTimeout(() => procList.classList.remove('loading'), 1000); // 1秒后移除类，蒙版消失
+      
+      /* 点击刷新按钮 */
+      const btn = document.getElementById(`btn-refresh-${serverIp}`);
+      ori_btnText = btn.textContent;
+      
+      if (!btn || btn.disabled) return;
+      const ws = serverData[serverIp]?.ws;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+          alert('节点未连接，无法刷新');
+          return;
+      }
+      btn.textContent = '刷新中...';
+      btn.disabled = true;
+      const reqId = ++reqIdCounter;
+      // 发刷新指令给对应节点
+      ws.send(JSON.stringify({
+          type: 'refresh',
+          req_id: reqId
+      }));
+      // 1秒超时恢复按钮
+      setTimeout(() => {
+          btn.disabled = false;
+          btn.textContent = ori_btnText;
+      }, 1000);
+      
+  }
+  
 </script>
 
 </body>
