@@ -4,17 +4,36 @@ import os
 
 app = Flask(__name__,
       template_folder='/python/templates',
-      static_folder='/python/asset',
-      static_url_path="/",
+      static_folder='/python/asset',#文件在磁盘上的实际存放位置
+      static_url_path=None,#相当于一个路由
+      # static_url_path="/abc",#相当于一个路由 @app.route('/abc')
       )
 
+'''
 # __name__ 本文件的文件名（不含后缀）
 
 # template_folder 存放模板的目录，缺省值为当前项目目录下的templates目录
 
-# static_folder 存放静态文件的目录（注意：存放在此目录下的文件，都会被当成静态文件处理，例如php、py文件），通常存放css/js/jpg/html等文件（假设项目的绝对路径为"/py",如果参数值为"/py/sss"时，可以直接通过xxx.com/sss/x.jpg 进行访问，此时static_folder的值做为存放目录以及url访问），缺省值为当前项目目录下的static目录
+# static_folder 存放静态文件的目录，缺省值为当前项目目录下的 static 目录
 
-# static_url_path 访问静态文件的路由设置，可以配合static_folder使用，例如：当static_url_path参数值为"/aaa"时，可以直接通过xxx.com/aaa/x.jpg 进行访问，此时static_folder的值仅做为存放目录，不作为url访问
+# static_url_path 访问静态文件的路由设置，配合 static_folder 使用
+
+一句话区分
+‌static_folder = 磁盘上的物理位置‌：服务器上那个‌真实存在‌的文件夹路径（文件到底躺在哪）。
+‌static_url_path = 网址上的访问前缀‌：浏览器地址栏里‌用什么路径‌能访问到它（对外暴露的入口）。
+一个是"库房在哪"，一个是"门店开在哪条街"。两者互相独立，可以随便搭配。
+这两个参数是一对"‌一个管磁盘、一个管网址‌"的组合，很多人一开始就混在这儿。先把它们拆开看：
+
+app = Flask(__name__, static_folder='/python/asset', static_url_path='/')
+凡是不带前缀的网址(static_url_path='/')，都去 /python/asset 目录里找文件‌。
+
+http://ip:5000/monitor.html → 读 /python/asset/monitor.html
+
+app = Flask(__name__, static_folder='/python/asset', static_url_path='/abc')
+凡是带前缀的网址(static_url_path='/abc')，都去 /python/asset 目录里找文件‌。
+
+http://ip:5000/abc/monitor.html → 读 /python/asset/monitor.html
+'''
 
 @app.route('/webrtc-player1')
 def index_webrtc1():
@@ -27,9 +46,13 @@ def index_webrtc1():
 def index_webrtc2():
     return send_file('/python/html/webrtc-player2.html')
 
-@app.route("/")
+@app.route('/<path:filename>')
+def static_files(filename):
+    return send_from_directory("/python/html", filename)
+
+@app.route('/')
 def index_a():
-  return send_file('/python/html/index.html')
+    return send_file('/python/html/index.html')
 
 @app.route("/temp")
 def index_b():
@@ -40,8 +63,8 @@ def index_b():
 def url_for_a():
   #return request.args['name']
   #return request.url +"<br/>"+ request.base_url +"<br/>"+ request.host_url+"<br/>"+request.host+"<br/>"+request.path+"<br/>"+request.full_path+"<br/>"+request.url_root
-  #return url_for('index_a')
-  return url_for('index_a', next='a', nexta='aa')+"<br/>"+url_for('index_a')+"<br/>"+url_for('pym222', home_id='a', nexta='aa')
+  #return url_for('index_b')
+  return url_for('index_b', next='a', nexta='aa')+"<br/>"+url_for('index_b')+"<br/>"+url_for('pym222', home_id='a', nexta='aa')
 
 @app.route("/pym2/<home_id>")
 def pym222(home_id):
