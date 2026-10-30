@@ -10,7 +10,8 @@
     </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Supervisor 进程监控</title>
+    <meta http-equiv="refresh" content="30;url={{ url_for('index') }}">
+    <title>Supervisor 进程监控（纯RPC版）</title>
     <style>
         /* ========== 1. 全局变量：默认深色主题 ========== */
         :root {
@@ -118,7 +119,7 @@
         .server-block.loading::after {
             content: '';
             position: absolute; inset: 0;
-            background: rgba(0,0,0,0.15);
+            background: rgba(0,0,0,0.4);
             z-index: 10;
             pointer-events: none;
         }
@@ -155,7 +156,7 @@
             padding: 6px 14px;
             background: var(--bg-card);
             border-bottom: 1px solid var(--border);
-            font-size: 12px;
+            font-size: 16px;
             justify-content: flex-end; /* 加这一行，所有统计项整体靠右排列 */
         }
         .server-stat-item {
@@ -167,10 +168,10 @@
         .server-stat-item:last-child { border-right: none; }
         .server-stat-label {
             color: var(--text-secondary);
-            font-size: 12px;
+            font-size: 16px;
         }
         .server-stat-value {
-            font-size: 13px; font-weight: 700;
+            font-size: 16px; font-weight: 700;
             font-family: Consolas, monospace;
         }
 
@@ -204,10 +205,11 @@
         .process-item {
             background: var(--bg-elevated);
             border-radius: 8px;
-            padding: 10px 12px;
+            padding: 16px 12px;
             margin-bottom: 6px;
             border-left: 4px solid var(--border);
             transition: background 0.2s;
+            
         }
         .process-item:hover { background: var(--bg-hover); }
         .process-item.RUNNING, .process-item.running { border-left-color: #22c55e; }
@@ -226,6 +228,8 @@
         .process-top {
             display: flex; justify-content: space-between; align-items: center;
             gap: 8px; margin-bottom: 6px;
+            padding: 0 0 8px 0;
+            
         }
         .process-info {
             display: flex; align-items: center; gap: 8px;
@@ -390,7 +394,7 @@
 </head>
 <body>
     <div class="page-header">
-        <h1>🚀 Supervisor 进程监控</h1>
+        <h1>🚀 Supervisor 进程监控（纯RPC版）</h1>
         <button class="theme-toggle" id="themeToggle">☀️ 白天</button>
     </div>
 
@@ -436,7 +440,7 @@
                 <h3>
                     {% set procs_check = funAllInfo(sn) %}
                     <span class="server-status-dot {% if procs_check %}connected{% else %}error{% endif %}"></span>
-                    {{ sn }} <span class="host">@ {{ info.host }}:{{ info.port }}</span>
+                    {{ sn }} <span class="host">@ {{ info.host }}</span>
                 </h3>
                 <a href="{{ url_for('restartSupervisor', title=sn) }}" class="btn btn-restart-supervisor" data-action="restart-supervisor">重启Supervisor</a>
             </div>
@@ -519,7 +523,7 @@
                 <div class="group-card" data-group="{{ proc.group_name }}">
                     <div class="group-header-bar" onclick="toggleGroup(this)">
                         <div class="group-title">
-                            <span class="fold-icon">▼</span>
+                            <span class="fold-icon collapsed">▼</span>
                             📁 {{ proc.group_name }}
                         </div>
                         <div class="process-ops">
@@ -528,7 +532,7 @@
                             <a href="{{ url_for('index_restartGroup', name=proc.group_name, title=sn) }}" class="btn btn-restart" data-action="restart-group" onclick="event.stopPropagation()">组重启</a>
                         </div>
                     </div>
-                    <div class="group-process-container">
+                    <div class="group-process-container hidden">
                         <ul class="process-list">
                         {% for sub_proc in proc.processes %}
                             {% set full_name = sub_proc.group ~ ':' ~ sub_proc.name %}
@@ -687,7 +691,7 @@
         function toggleGroup(headerBar) {
             const container = headerBar.nextElementSibling;
             const foldIcon = headerBar.querySelector('.fold-icon');
-            container.classList.toggle('hidden');
+            container.classList.toggle('hidden');//加 hidden 表示折叠
             const collapsed = container.classList.contains('hidden');
             foldIcon.classList.toggle('collapsed', collapsed);
         }
