@@ -1,8 +1,11 @@
-from flask import Flask, render_template, url_for, request, jsonify, redirect
+from flask import Flask, render_template, url_for, request, jsonify, redirect, Response
 from xmlrpc.client import ServerProxy
 import signal
 import os
 from collections import Counter
+import json
+import threading
+import time
 
 app = Flask(__name__,
             template_folder='/python/supervisor_monit/templates',
@@ -10,10 +13,31 @@ app = Flask(__name__,
             static_url_path="/",
             )
 
+'''
 # __name__ 本文件的文件名（不含后缀）
+
 # template_folder 存放模板的目录，缺省值为当前项目目录下的templates目录
-# static_folder 存放静态文件的目录（注意：存放在此目录下的文件，都会被当成静态文件处理，例如php、py文件），通常存放css/js/jpg/html等文件（假设项目的绝对路径为"/py",如果参数值为"/py/sss"时，可以直接通过xxx.com/sss/x.jpg 进行访问，此时static_folder的值做为存放目录以及url访问），缺省值为当前项目目录下的static目录
-# static_url_path 访问静态文件的路由设置，可以配合static_folder使用，例如：当static_url_path参数值为"/aaa"时，可以直接通过xxx.com/aaa/x.jpg 进行访问，此时static_folder的值仅做为存放目录，不作为url访问
+
+# static_folder 存放静态文件的目录，缺省值为当前项目目录下的 static 目录
+
+# static_url_path 访问静态文件的路由设置，配合 static_folder 使用
+
+一句话区分
+‌static_folder = 磁盘上的物理位置‌：服务器上那个‌真实存在‌的文件夹路径（文件到底躺在哪）。
+‌static_url_path = 网址上的访问前缀‌：浏览器地址栏里‌用什么路径‌能访问到它（对外暴露的入口）。
+一个是"库房在哪"，一个是"门店开在哪条街"。两者互相独立，可以随便搭配。
+这两个参数是一对"‌一个管磁盘、一个管网址‌"的组合，很多人一开始就混在这儿。先把它们拆开看：
+
+app = Flask(__name__, static_folder='/python/asset', static_url_path='/')
+凡是不带前缀的网址(static_url_path='/')，都去 /python/asset 目录里找文件‌。
+
+http://ip:5000/monitor.html → 读 /python/asset/monitor.html
+
+app = Flask(__name__, static_folder='/python/asset', static_url_path='/abc')
+凡是带前缀的网址(static_url_path='/abc')，都去 /python/asset 目录里找文件‌。
+
+http://ip:5000/abc/monitor.html → 读 /python/asset/monitor.html
+'''
 
 @app.route("/getenv")
 def index_getenv():
@@ -28,14 +52,14 @@ serverDict = {
         "passwd":"admin",
     },
     "pyweb2":{
-        "host":"192.168.1.122",
-        "port":"8001",
+        "host":"39.96.29.167",
+        "port":"8000",
         "user":"admin",
         "passwd":"admin",
     },
     "pyweb3":{
-        "host":"192.168.1.123",
-        "port":"8002",
+        "host":"141.164.54.172",
+        "port":"8000",
         "user":"admin",
         "passwd":"admin",
     }
@@ -52,6 +76,7 @@ def format_supervisor_data(process_list):
     - 出现 >= 2 次的 group 名：视为“组”，聚合在一起。
     - 出现 == 1 次的 group 名：视为“独立进程”，单独展示。
     """
+    
     if not process_list:
         return {"groups": [], "ungrouped": []}
 
@@ -139,12 +164,15 @@ def restartSupervisor():
 
 # 开始或停止某个进程
 # 操作组内的程序时，要把组名与程序名用冒号连接，变成 组名:程序名
+#亲测验证：当进程名与组名重名时，可以直接使用进程名，
+#此时组名对此进程依然有效，继续支持使用组名:进程名进行操作，
+#也继续支持对此组名进行操作，命令也会影响到此进程
 @app.route("/startOrStop.html")
 def index_one():
     para = request.args['name']
     method = request.args['method']
     title = request.args['title']
-    # url = "http://admin:admin@8.210.236.200:5002/RPC2"
+    # url = "http://admin:admin@192.168.1.121:8000/RPC2"
     url = getUrlRpc(title,serverDict)
     server = ServerProxy(url)
     calls = [
@@ -159,7 +187,7 @@ def index_one():
 @app.route("/restartAll.html")
 def index_restartAll():
     title = request.args['title']
-    # url = "http://admin:admin@8.210.236.200:5002/RPC2"
+    # url = "http://admin:admin@192.168.1.121:8000/RPC2"
     url = getUrlRpc(title,serverDict)
     server = ServerProxy(url)
     calls = [ 
@@ -176,7 +204,7 @@ def index_restartAll():
 def index_restartOne():
     para = request.args['name']
     title = request.args['title']
-    # url = "http://admin:admin@8.210.236.200:5002/RPC2"
+    # url = "http://admin:admin@192.168.1.121:8000/RPC2"
     url = getUrlRpc(title,serverDict)
     server = ServerProxy(url)
     calls = [ 
@@ -193,7 +221,7 @@ def index_restartOne():
 def index_restartGroup():
     para = request.args['name']
     title = request.args['title']
-    # url = "http://admin:admin@8.210.236.200:5002/RPC2"
+    # url = "http://admin:admin@192.168.1.121:8000/RPC2"
     url = getUrlRpc(title,serverDict)
     server = ServerProxy(url)
     calls = [ 
@@ -206,7 +234,14 @@ def index_restartGroup():
     return redirect(url_for('index'))
 
 
-'''
+@app.route("/allconfiginfo.html")
+def get_allConfigInfo():
+    
+    url = "http://admin:admin@192.168.1.121:8000/RPC2"
+    server = ServerProxy(url)
+    allConfigInfo = server.supervisor.getAllConfigInfo()
+    
+    return allConfigInfo
 
 @app.route("/methods.html")
 def get_methods():
@@ -217,16 +252,7 @@ def get_methods():
     
     return Methods
 
-@app.route("/allconfiginfo.html")
-def get_allConfigInfo():
-    
-    url = "http://admin:admin@192.168.1.121:8000/RPC2"
-    server = ServerProxy(url)
-    allConfigInfo = server.supervisor.getAllConfigInfo()
-    
-    return allConfigInfo
-
-
+'''
 # 多重调用，比如：先停止，再启动，这时需要使用 server.system.multicall(calls)
 # 如果只是单独停止，可以直接使用 server.supervisor.stopProcess(name)
 @app.route('/process_route', methods = ['GET', 'POST'])
@@ -265,4 +291,4 @@ def urlfor():
 
 #以下命令，只有在使用 python this.py 才起作用
 if __name__=='__main__':
-    app.run(debug=True,host='0.0.0.0',port=5000)
+    app.run(debug=True,host='0.0.0.0', port=5000)
