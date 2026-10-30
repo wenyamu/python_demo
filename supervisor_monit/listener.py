@@ -18,7 +18,6 @@ import threading
 import logging
 from collections import defaultdict
 from xmlrpc.client import ServerProxy, Fault
-
 import websockets
 
 # ---------- 日志（输出到 stderr，避免污染 stdout 的事件协议） ----------
@@ -305,6 +304,24 @@ async def ws_handler(websocket):
                         "ts": time.time(),
                     }, ensure_ascii=False))
             
+            # ---------- 【新增】手动刷新当前节点状态 ----------
+            elif msg_type == "refresh":
+                req_id = msg.get("req_id")
+                logger.info(f"前端请求手动刷新当前节点状态")
+                # 只给当前请求的连接发全量数据，不广播，不影响其他人
+                all_procs = await asyncio.to_thread(sup.get_all_processes)
+                await websocket.send(json.dumps({
+                    "type": "full_sync",
+                    "data": all_procs,
+                    "ts": time.time(),
+                }, ensure_ascii=False))
+                await websocket.send(json.dumps({
+                    "type": "op_result",
+                    "req_id": req_id,
+                    "success": True,
+                    "message": "刷新完成"
+                }, ensure_ascii=False))
+
             # ---------- 重启整个 Supervisor ----------
             elif msg_type == "restart_supervisor":
                 req_id = msg.get("req_id")
