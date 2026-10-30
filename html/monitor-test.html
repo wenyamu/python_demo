@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Supervisor 实时监控</title>
+<style>
+    body { font-family: "Microsoft YaHei", sans-serif; background:#111; color:#eee; padding:20px; }
+    h2 { margin-top:0; }
+    #log { margin-top:20px; height:300px; overflow-y:auto; background:#1b1b1b;
+           padding:10px; border-radius:6px; font-family:monospace; font-size:13px; }
+    .item { padding:8px 10px; border-left:4px solid #444; margin-bottom:6px; background:#222; border-radius:4px; }
+    .RUNNING  { border-left-color:#22c55e; }
+    .EXITED   { border-left-color:#ef4444; }
+    .FATAL    { border-left-color:#dc2626; }
+    .BACKOFF  { border-left-color:#f59e0b; }
+    .STOPPED  { border-left-color:#6b7280; }
+    .toast { position:fixed; top:20px; right:20px; background:#dc2626; color:#fff;
+             padding:14px 20px; border-radius:8px; display:none; z-index:99; }
+</style>
+</head>
+
+    Supervisor 实时监控 <span id="conn" style="font-size:13px;color:#888;">连接中...</span></h2>
+
+    <!-- 进程状态列表 -->
+    <div id="processes"></div>
+
+    <!-- 事件日志 -->
+    实时事件流</h3>
+    <div id="log"></div>
+
+    <!-- 异常弹窗 -->
+    <div class="toast" id="toast"></div>
+
+<script>
+    const connEl = document.getElementById('conn');
+    const logEl  = document.getElementById('log');
+    const toastEl= document.getElementById('toast');
+    // 进程状态缓存
+    const procState = {};
+
+    function showToast(text) {
+        toastEl.textContent = text;
+        toastEl.style.display = 'block';
+        clearTimeout(toastEl._t);
+        toastEl._t = setTimeout(() => toastEl.style.display = 'none', 5000);
+    }
+
+    function renderProcesses() {
+        const box = document.getElementById('processes');
+        box.innerHTML = '';
+        Object.values(procState).sort((a,b)=>a.name.localeCompare(b.name)).forEach(p => {
+            const div = document.createElement('div');
+            div.className = 'item ' + p.state;
+            div.innerHTML = `${p.name}</b> · ${p.state} · pid=${p.pid || '-'}`;
+            box.appendChild(div);
+        });
+    }
+
+    function appendLog(msg) {
+        const div = document.createElement('div');
+        div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        logEl.prepend(div);
+        if (logEl.children.length > 200) logEl.lastChild.remove();
+    }
+
+    let ws;
+    function connect() {
+        ws = new WebSocket(`ws://${location.hostname}:8765`);
+
+        ws.onopen = () => {
+            connEl.textContent = '已连接';
+            connEl.style.color = '#22c55e';
+        };
+
+        ws.onclose = () => {
+            connEl.textContent = '已断开，3秒后重连...';
+            connEl.style.color = '#ef4444';
+            setTimeout(connect, 3000);
+        };
+
+        ws.onmessage = (e) => {
+            const data = JSON.parse(e.data);
+
+            if (data.type === 'hello') return;
+
+            if (data.type === 'state_change') {
+                const name = data.process;
+                const state = (data.event || '').replace('PROCESS_STATE_', '');
+                procState[name] = { name, state, pid: data.pid };
+
+                appendLog(`${name} 状态 → ${state}`);
+                renderProcesses();
+
+                // 异常状态弹窗提醒
+                if (['EXITED', 'FATAL', 'BACKOFF'].includes(state)) {
+                    showToast(`⚠️ ${name} 异常：${state}`);
+                }
+            }
+        };
+    }
+
+    connect();
+</script>
+</body>
+</html>
