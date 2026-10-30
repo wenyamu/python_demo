@@ -46,19 +46,19 @@ def index_getenv():
 # 字典形式，安装了 supervisor 的本机或远程服务器的ip、登陆端口、用户名、密码信息
 serverDict = {
     "pyweb1":{
-        "host":"192.168.1.121",
+        "host":"192.168.1.101",
         "port":"8000",
         "user":"admin",
         "passwd":"admin",
     },
     "pyweb2":{
-        "host":"192.168.1.121",
+        "host":"192.168.1.102",
         "port":"8000",
         "user":"admin",
         "passwd":"admin",
     },
     "pyweb3":{
-        "host":"192.168.1.121",
+        "host":"192.168.1.103",
         "port":"8000",
         "user":"admin",
         "passwd":"admin",
