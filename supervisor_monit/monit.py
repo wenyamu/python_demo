@@ -52,13 +52,13 @@ serverDict = {
         "passwd":"admin",
     },
     "pyweb2":{
-        "host":"39.96.29.167",
+        "host":"192.168.1.121",
         "port":"8000",
         "user":"admin",
         "passwd":"admin",
     },
     "pyweb3":{
-        "host":"141.164.54.172",
+        "host":"192.168.1.121",
         "port":"8000",
         "user":"admin",
         "passwd":"admin",
