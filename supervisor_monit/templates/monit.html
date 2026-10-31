@@ -653,32 +653,81 @@
             
         }
 
-        // ========== 仅刷新单个节点 ==========
-        async function refreshSingleServer(serverEl) {
+
+        // === 仅刷新单个节点（加silent参数：true=静默自动刷新，false=手动刷新带蒙版） ===
+        async function refreshSingleServer(serverEl, silent = false) {
             const sn = serverEl.dataset.server;
             const refreshBtn = serverEl.querySelector('.btn-refresh-node');
-            if (refreshBtn) refreshBtn.classList.add('loading');
-            serverEl.classList.add('loading');
+
+            // ★新增1：刷新前，记录每个分组的折叠状态（true=折叠，false=展开）
+            const foldStates = [];
+            serverEl.querySelectorAll('[onclick*="toggleGroup"]').forEach(h => {
+                const container = h.nextElementSibling;
+                foldStates.push(container ? container.classList.contains('hidden') : null);
+            });
+            // 手动刷新才显示蒙版+按钮转圈，自动静默刷新不显示
+            if (!silent) {
+                if (refreshBtn) refreshBtn.classList.add('loading');
+                serverEl.classList.add('loading');
+            }
             try {
                 const res = await fetch(window.location.href, { cache: 'no-cache' });
                 const text = await res.text();
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(text, 'text/html');
                 const newServer = doc.querySelector(`.server-block[data-server="${sn}"]`);
-                
+
                 if (newServer) {
                     serverEl.innerHTML = newServer.innerHTML;
+
+                    // ★新增2：换完HTML后，把折叠状态原样恢复回去
+                    serverEl.querySelectorAll('[onclick*="toggleGroup"]').forEach((h, i) => {
+                        const container = h.nextElementSibling;
+                        const foldIcon = h.querySelector('.fold-icon');
+                        if (!container || foldStates[i] === null || foldStates[i] === undefined) return;
+                        if (foldStates[i]) {
+                            container.classList.add('hidden');          // 原来是折叠的，保持折叠
+                            if (foldIcon) foldIcon.classList.add('collapsed');
+                        } else {
+                            container.classList.remove('hidden');       // 原来是展开的，保持展开
+                            if (foldIcon) foldIcon.classList.remove('collapsed');
+                        }
+                    });
+
                     updateAllStats();
-                    showToast('节点刷新成功', 'success');
+                    // 手动刷新才弹成功提示，自动静默不弹
+                    if (!silent) showToast('节点刷新成功', 'success');
                 }
             } catch (err) {
                 console.error('刷新节点失败:', err);
-                showToast('刷新失败，请检查连接', 'error');
+                // 手动刷新才弹错误提示，自动静默只打控制台不打扰
+                if (!silent) showToast('刷新失败，请检查连接', 'error');
             } finally {
-                serverEl.classList.remove('loading');
-                if (refreshBtn) refreshBtn.classList.remove('loading');
+                if (!silent) {
+                    // 手动刷新才移除loading状态
+                    serverEl.classList.remove('loading');
+                    if (refreshBtn) refreshBtn.classList.remove('loading');
+                }
             }
         }
+
+
+        // === 新增：每3秒静默自动刷新所有节点 ===
+        // 调用方法 setInterval(autoRefreshAll, 3000); 间隔毫秒数：3000=3秒
+        async function autoRefreshAll() {
+            const allServers = document.querySelectorAll('.server-block');
+            // 逐个节点刷新，一个刷完再刷下一个，不并发卡页面
+            for (const serverEl of allServers) {
+                // 如果节点正在手动刷新（有loading类），跳过本次，不冲突
+                if (serverEl.classList.contains('loading')) continue;
+                try {
+                    await refreshSingleServer(serverEl, true); // true=静默模式，无任何UI提示
+                } catch (e) {
+                    console.warn('自动刷新节点失败:', serverEl.dataset.server, e);
+                }
+            }
+        }
+
 
         // 分组折叠
         function toggleGroup(headerBar) {
@@ -750,6 +799,10 @@
         // 页面加载完更新所有统计，首屏恢复过渡
         document.addEventListener('DOMContentLoaded', () => {
             updateAllStats();
+            
+            // 页面加载完1秒后第一次自动刷新（避免刚进页面就刷），之后每3秒一次
+            setTimeout(autoRefreshAll, 1000);
+            setInterval(autoRefreshAll, 3000);
         });
     </script>
 
