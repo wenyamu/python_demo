@@ -38,7 +38,7 @@ Restarted supervisord
 ```
 ### 安装及初始化配置
 ```
-apt install -y build-essential python3-dev libevent-dev && \
+apt install -y build-essential python3-dev libevent-dev websockets && \
 python3 -m pip install supervisor && \
 mkdir -p /etc/supervisor && \
 echo_supervisord_conf > /etc/supervisor/supervisord.conf && \
@@ -64,8 +64,8 @@ EOF
 ### 配置子程序配置项，此配置项不同的程序有不同的设置
 ```
 mkdir -p /etc/supervisor/my_config && \
-cat > /etc/supervisor/my_config/Multi_Resolution.conf <<EOF
-[program:Multi_Resolution]
+cat > /etc/supervisor/my_config/time_app.conf <<EOF
+[program:time_app]
 ;标准推荐范围为 0-999 ‌默认值‌：‌999‌ ‌规则‌：‌数值越小，优先级越高，越先启动‌。
 ; priority=11
 ;创建该项目用户
@@ -75,7 +75,8 @@ user = root
 directory = /root/test
 
 ;ffmpeg程序命令
-command = python3 hls_abr_gen.py -i rtmp://1.2.3.4:1935/show-flv/abc123456 -o /mnt/hls3 --run
+;command = python3 hls_abr_gen.py -i rtmp://1.2.3.4:1935/show-flv/abc123456 -o /mnt/hls3 --run
+command = python3 -c "import time; f=open('/tmp/strftime.log','w'); [f.seek(0) or f.write(time.strftime('%%Y-%%m-%%d %%H:%%M:%%S\n')) or f.truncate() or f.flush() or time.sleep(1) for _ in iter(int,1)]"
 
 autostart = true ;在supervisord启动的时候，false 表示不自动启动，true 表示随着启动
 autorestart = true ;程序异常退出后，false 表示不自动重启，true 表示自动重启
@@ -83,10 +84,19 @@ startsecs = 3 ;稳定运行N秒后，从“正在启动”转成“正在运行�
 startretries = 3 ;进程启动失败后，最大尝试的次数。当超过3次后，supervisor将把此进程的状态置为FATAL
 stopasgroup = true ;确保关闭supervisord时停止所有相关子进程
 killasgroup = true ;确保关闭supervisord时停止所有相关子进程
+environment=TZ="Asia/Shanghai"  # 单独给进程设上海时区，不用改全局supervisord启动参数
 
 ;日志目录必须事先存在，不然会出错
-;stdout_logfile = /tmp/Multi_Resolution_out.log
-;stderr_logfile = /tmp/Multi_Resolution_err.log
+;stdout_logfile = /tmp/time_app_out.log
+;stderr_logfile = /tmp/time_app_err.log
+
+[eventlistener:state_broadcaster]
+command=python3 /etc/supervisor/listener.py
+events=PROCESS_STATE
+buffer_size=10
+; 监听器挂掉后自动重启
+autorestart=true
+startsecs=1
 EOF
 ```
 
