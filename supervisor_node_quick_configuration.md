@@ -5,7 +5,7 @@
 > 
 > 我就遇到过把主配置文件生成为ini `echo_supervisord_conf > /etc/supervisor/supervisord.ini`，启动 supervisor 时用 -c 指定了此配置文件，但是在我使用 supervisorctl 命令时，直接提示错误，必须指定配置文件才行。
 > 
-> 我明明没有配置 9001 端口，我配置的是 `[inet_http_server] port = 0.0.0.0:8000`
+> 我明明没有配置 9001 端口，我配置的是 `[inet_http_server] port = 0.0.0.0:8000` 并且通过 `http://192.168.1.121:8000/` 可以控制进程的启动、停止、重启。
 ```
 root@localhost:~# TZ=Asia/Shanghai /usr/local/bin/supervisord -c /etc/supervisor/supervisord.ini
 root@localhost:~# supervisorctl status all
@@ -17,6 +17,13 @@ root        1245       1  0 09:41 ?        00:00:00 /usr/bin/python3 /usr/local/
 root        1275    1239  0 09:42 pts/0    00:00:00 grep supervisord
 root@localhost:~# supervisorctl status
 http://localhost:9001 refused connection
+root@localhost:~# supervisorctl -s http://localhost:8000
+Server requires authentication
+Username:admin
+Password:
+
+Multi-resolution                 RUNNING   pid 1721, uptime 0:00:14
+state_broadcaster                RUNNING   pid 1469, uptime 0:18:37
 root@localhost:~# supervisorctl -c /etc/supervisor/supervisord.ini status
 Multi-resolution                 RUNNING   pid 1945, uptime 0:00:06
 state_broadcaster                RUNNING   pid 1469, uptime 0:38:01
