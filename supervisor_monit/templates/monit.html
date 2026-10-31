@@ -10,8 +10,8 @@
     </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="30;url={{ url_for('index') }}">
-    <title>Supervisor 进程监控（纯RPC版）</title>
+    <!-- <meta http-equiv="refresh" content="30;url={{ url_for('index') }}"> -->
+    <title>Supervisor 进程监控（RPC版）</title>
     <style>
         /* ========== 1. 全局变量：默认深色主题 ========== */
         :root {
@@ -55,7 +55,7 @@
             font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
             background: var(--bg); color: var(--text-primary);
             padding: 12px 22px; min-height: 100vh;
-            font-size: 14px;
+            
         }
 
         /* ========== 4. 标题栏 ========== */
@@ -104,7 +104,7 @@
         .server-container {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 16px;
+            gap: 20px;
         }
 
         /* ========== 7. 服务器卡片 ========== */
@@ -140,7 +140,7 @@
             color: var(--text-secondary);
             font-weight: normal;
             font-family: Consolas, monospace;
-            font-size: 13px;
+            font-size: 14px;
         }
         .server-status-dot {
             width: 10px; height: 10px; border-radius: 50%;
@@ -153,11 +153,11 @@
         /* ========== 【新增】单节点统计条 ========== */
         .server-stats {
             display: flex; gap: 0;
-            padding: 6px 14px;
+            padding: 8px 14px;
             background: var(--bg-card);
             border-bottom: 1px solid var(--border);
             font-size: 16px;
-            justify-content: flex-end; /* 加这一行，所有统计项整体靠右排列 */
+            /* justify-content: flex-end; 加这一行，所有统计项整体靠右排列 */
         }
         .server-stat-item {
             display: flex; align-items: center; gap: 5px;
@@ -166,15 +166,7 @@
         }
         .server-stat-item:first-child { padding-left: 0; }
         .server-stat-item:last-child { border-right: none; }
-        .server-stat-label {
-            color: var(--text-secondary);
-            font-size: 16px;
-        }
-        .server-stat-value {
-            font-size: 16px; font-weight: 700;
-            font-family: Consolas, monospace;
-        }
-
+        
         /* 批量操作栏 */
         .server-actions {
             display: flex; gap: 6px;
@@ -394,40 +386,40 @@
 </head>
 <body>
     <div class="page-header">
-        <h1>🚀 Supervisor 进程监控（纯RPC版）</h1>
+        <h1>🚀 分布式 Supervisor 进程监控（RPC版）</h1>
         <button class="theme-toggle" id="themeToggle">☀️ 白天</button>
     </div>
 
     <!-- ========== 【100%保留】顶部全局统计条 ========== -->
     <div class="overview">
         <div class="stat-item">
-            <span class="stat-icon">🖥️</span>
+            <span class="stat-icon stat-value black">🖥️</span>
             <span class="stat-label">总节点</span>
-            <span class="stat-value gray" id="stat-total-nodes">0</span>
+            <span class="stat-value black" id="stat-total-nodes">0</span>
         </div>
         <div class="stat-item">
-            <span class="stat-icon">🟢</span>
+            <span class="stat-icon stat-value green">●</span>
             <span class="stat-label">在线节点</span>
             <span class="stat-value green" id="stat-online-nodes">0</span>
         </div>
         <div class="stat-item">
-            <span class="stat-icon">🔢</span>
+            <span class="stat-icon stat-value blue">⚙</span>
             <span class="stat-label">进程总数</span>
             <span class="stat-value blue" id="stat-total-procs">0</span>
         </div>
         <div class="stat-item">
-            <span class="stat-icon">▶️</span>
+            <span class="stat-icon stat-value green">►</span>
             <span class="stat-label">运行中</span>
             <span class="stat-value green" id="stat-running-procs">0</span>
         </div>
         <div class="stat-item">
-            <span class="stat-icon">⏹️</span>
-            <span class="stat-label">已停止</span>
+            <span class="stat-icon stat-value gray">■</span>
+            <span class="stat-label">已终止</span>
             <span class="stat-value gray" id="stat-stopped-procs">0</span>
         </div>
         <div class="stat-item">
-            <span class="stat-icon">❌</span>
-            <span class="stat-label">异常</span>
+            <span class="stat-icon stat-value red">✖</span>
+            <span class="stat-label">启动失败</span>
             <span class="stat-value red" id="stat-error-procs">0</span>
         </div>
         
@@ -440,9 +432,9 @@
                 <h3>
                     {% set procs_check = funAllInfo(sn) %}
                     <span class="server-status-dot {% if procs_check %}connected{% else %}error{% endif %}"></span>
-                    {{ sn }} <span class="host">@ {{ info.host }}</span>
+                    {{ sn }} <span class="host">{{ info.host }}</span>
                 </h3>
-                <a href="{{ url_for('restartSupervisor', title=sn) }}" class="btn btn-restart-supervisor" data-action="restart-supervisor">重启Supervisor</a>
+                <a href="{{ url_for('restartSupervisor', title=sn) }}" class="btn btn-restart-supervisor" data-action="restart-supervisor">⚠︎‌ 重启 Supervisor</a>
             </div>
 
             {% set processes = procs_check %}
@@ -452,34 +444,34 @@
                 <!-- ========== 【新增】单节点统计条 ========== -->
                 <div class="server-stats" id="node-stats-{{ sn }}">
                     <div class="server-stat-item">
-                        <span class="server-stat-label">进程</span>
-                        <span class="server-stat-value blue node-total">0</span>
+                        <span class="stat-label">进程</span>
+                        <span class="stat-value blue node-total">0</span>
                     </div>
                     <div class="server-stat-item">
-                        <span class="server-stat-label">运行</span>
-                        <span class="server-stat-value green node-running">0</span>
+                        <span class="stat-label">运行</span>
+                        <span class="stat-value green node-running">0</span>
                     </div>
                     <div class="server-stat-item">
-                        <span class="server-stat-label">停止</span>
-                        <span class="server-stat-value gray node-stopped">0</span>
+                        <span class="stat-label">停止</span>
+                        <span class="stat-value gray node-stopped">0</span>
                     </div>
                     <div class="server-stat-item">
-                        <span class="server-stat-label">异常</span>
-                        <span class="server-stat-value red node-error">0</span>
+                        <span class="stat-label">异常</span>
+                        <span class="stat-value red node-error">0</span>
                     </div>
-                    
-                </div>
-
-                <div class="server-actions">
-                    <a href="{{ url_for('index_one', method='supervisor.stopAllProcesses', name='', title=sn) }}" class="btn btn-stop-all" data-action="stop-all">全部停止</a>
-                    <a href="{{ url_for('index_one', method='supervisor.startAllProcesses', name='', title=sn) }}" class="btn btn-start-all" data-action="start-all">全部启动</a>
-                    <a href="{{ url_for('index_restartAll', title=sn) }}" class="btn btn-restart-all" data-action="restart-all">全部重启</a>
                     <button class="btn btn-refresh-node" data-action="refresh-node" title="刷新当前节点">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:2px;">
                             <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
                         </svg>
                         刷新
                     </button>
+                </div>
+
+                <div class="server-actions">
+                    <a href="{{ url_for('index_one', method='supervisor.stopAllProcesses', name='', title=sn) }}" class="btn btn-stop-all" data-action="stop-all">全部停止</a>
+                    <a href="{{ url_for('index_one', method='supervisor.startAllProcesses', name='', title=sn) }}" class="btn btn-start-all" data-action="start-all">全部启动</a>
+                    <a href="{{ url_for('index_restartAll', title=sn) }}" class="btn btn-restart-all" data-action="restart-all">全部重启</a>
+                    
                 </div>
                 
                 <!-- 未分组进程 -->
@@ -523,7 +515,7 @@
                 <div class="group-card" data-group="{{ proc.group_name }}">
                     <div class="group-header-bar" onclick="toggleGroup(this)">
                         <div class="group-title">
-                            <span class="fold-icon collapsed">▼</span>
+                            <span class="fold-icon">▼</span>
                             📁 {{ proc.group_name }}
                         </div>
                         <div class="process-ops">
@@ -532,7 +524,7 @@
                             <a href="{{ url_for('index_restartGroup', name=proc.group_name, title=sn) }}" class="btn btn-restart" data-action="restart-group" onclick="event.stopPropagation()">组重启</a>
                         </div>
                     </div>
-                    <div class="group-process-container hidden">
+                    <div class="group-process-container">
                         <ul class="process-list">
                         {% for sub_proc in proc.processes %}
                             {% set full_name = sub_proc.group ~ ':' ~ sub_proc.name %}
@@ -736,8 +728,8 @@
 
                 if (res.ok) {
                     showToast('操作执行成功', 'success');
-                    // 重启Supervisor等2.5秒，其他操作等800ms，只刷新当前节点
-                    const delay = isRestartSupervisor ? 2500 : 800;
+                    // 重启Supervisor等3秒，其他操作等1000ms，只刷新当前节点
+                    const delay = isRestartSupervisor ? 3000 : 1000;
                     setTimeout(() => refreshSingleServer(serverEl).then(() => {
                         btn.classList.remove('loading');
                         btn.disabled = false;
