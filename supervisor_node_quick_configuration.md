@@ -75,7 +75,7 @@ user = root
 directory = /root/test
 
 ;ffmpeg程序命令
-command = python3 hls_abr_gen.py -i rtmp://39.96.29.167:1935/show-flv/abc123456 -o /mnt/hls3 --run
+command = python3 hls_abr_gen.py -i rtmp://x.x.x.x:1935/show-flv/abc123456 -o /mnt/hls3 --run
 
 autostart = true ;在supervisord启动的时候，false 表示不自动启动，true 表示随着启动
 autorestart = true ;程序异常退出后，false 表示不自动重启，true 表示自动重启
