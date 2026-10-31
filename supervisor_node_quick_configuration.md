@@ -1,3 +1,15 @@
+## 主配置文件的后缀必须是conf，主配置文件是 supervisord 和 supervisorctl 都要用到的，其引用的配置文件可以是 ini、conf 等
+> Supervisor 配置文件通常命名为 supervisord.conf，它被 supervisord 和 supervisorctl 共同使用。如果任一应用程序在启动时未指定选项 -c（该选项用于显式告知应用程序配置文件的名称），应用程序将查找名为 supervisord.conf 的文件。
+> https://supervisord.org/configuration.html?highlight=Configuration
+> 我就遇到过把主配置文件生成为 echo_supervisord_conf > /etc/supervisor/supervisord.ini，我启动时用 -c 指定了此配置文件，但是在我使用 supervisorctl 命令时，直接提示错误，必须指定配置文件才行。
+```
+root@orangepizero3:~# supervisorctl status
+http://localhost:9001 refused connection
+root@orangepizero3:~# supervisorctl -c /etc/supervisor/supervisord.ini status
+Multi-resolution                 RUNNING   pid 1945, uptime 0:00:06
+state_broadcaster                RUNNING   pid 1469, uptime 0:38:01
+
+```
 ### 安装及初始化配置
 ```
 apt install -y build-essential python3-dev libevent-dev && \
