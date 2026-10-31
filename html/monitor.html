@@ -120,7 +120,7 @@
   
   .server-header {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 10px 18px; background: var(--bg-elevated);
+    padding: 9px 18px; background: var(--bg-elevated);
     border-bottom: 1px solid var(--border);
     
   }
@@ -137,11 +137,11 @@
   /* 新增：独立的统计条，放头部下方、进程列表上方 */
   .server-stats-bar {
       display: flex;
-      gap: 8px;
-      padding: 10px 18px;
+      gap: 6px;
+      padding: 8px 18px;
       background: var(--bg-elevated);
       align-items: center;
-      font-size: 14px;
+      font-size: 16px;
       color: var(--text-secondary);
       flex-shrink: 0;
   }
@@ -236,7 +236,7 @@
   .btn-supervisor-refresh {
     background: #22c55e22; color: #22c55e;
     border: 1px solid #22c55e66;
-    padding: 5px 10px; border-radius: 4px;
+    padding: 4px 10px; border-radius: 4px;
     font-size: 15px; font-weight: 600; cursor: pointer;
     flex-shrink: 0; margin-left: 2px; transition: all 0.15s;
   }
@@ -258,7 +258,6 @@
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; animation-duration: 0.01ms !important; }
   }
-  
   
 </style>
 
@@ -342,7 +341,7 @@
                 <h3>${server.name}<span class="server-ip">${server.ip}</span></h3>
             </div>
             <div class="server-actions">
-                <button class="btn btn-supervisor-restart" id="btn-restart-sv-${server.ip}" onclick="restartSupervisor('${server.ip}')">⚠︎‌ 重启 Supervisor</button>
+                <button class="btn btn-supervisor-restart" id="btn-restart-sv-${server.ip}" onclick="restartSupervisor('${server.ip}')">⚠︎ 重启 Supervisor</button>
             </div>
             
         </div>
