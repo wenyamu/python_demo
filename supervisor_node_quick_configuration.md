@@ -3,7 +3,7 @@
 > 
 > https://supervisord.org/configuration.html?highlight=Configuration
 > 
-> 我就遇到过把主配置文件生成为 echo_supervisord_conf > /etc/supervisor/supervisord.ini，我启动时用 -c 指定了此配置文件，但是在我使用 supervisorctl 命令时，直接提示错误，必须指定配置文件才行。
+> 我就遇到过把主配置文件生成为ini `echo_supervisord_conf > /etc/supervisor/supervisord.ini`，启动 supervisor 时用 -c 指定了此配置文件，但是在我使用 supervisorctl 命令时，直接提示错误，必须指定配置文件才行。
 ```
 root@localhost:~# TZ=Asia/Shanghai /usr/local/bin/supervisord -c /etc/supervisor/supervisord.ini
 root@localhost:~# supervisorctl status all
