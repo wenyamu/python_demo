@@ -1,4 +1,4 @@
-## 主配置文件的后缀必须是conf，主配置文件是 supervisord 和 supervisorctl 都要用到的，其引用的配置文件可以是 ini、conf 等
+## 主配置文件的后缀必须是conf，其引用的配置文件可以是 ini、conf 等
 > Supervisor 配置文件通常命名为 supervisord.conf，它被 supervisord 和 supervisorctl 共同使用。如果任一应用程序在启动时未指定选项 -c（该选项用于显式告知应用程序配置文件的名称），应用程序将查找名为 supervisord.conf 的文件。
 > 
 > https://supervisord.org/configuration.html?highlight=Configuration
