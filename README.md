@@ -30,7 +30,7 @@ git clone https://github.com/wenyamu/python_demo.git /python
 > 区别是 pip 安装的不会自动生成 `/etc/supervisor/supervisord.conf` 配置文件，需要手动生成，见后面的操作命令
 ```
 apt install -y build-essential python3-dev libevent-dev && \
-python3 -m pip install gunicorn flask gevent pymysql supervisor
+python3 -m pip install gunicorn flask gevent pymysql supervisor websockets
 ```
 
 ### 查看软件版本
