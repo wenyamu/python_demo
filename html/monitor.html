@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Supervisor 进程监控（websockets 版）</title>
+<style>
+  
+  /* ========== 1. 全局变量：默认深色（你现在的夜晚主题） ========== */
+  :root {
+    --bg: #0f1115;
+    --bg-card: #1a1d23;
+    --bg-elevated: #22262e;
+    --bg-hover: #282d36;
+    --border: #2a2f38;
+    --text-primary: #e4e6eb;
+    --text-secondary: #8b92a1;
+    --scrollbar: #3a3f4b;
+    --fatal-bg: #2d1b1b;
+    --flap-warn-bg: #ef444415;
+    --shadow-soft: 0 2px 8px rgba(0,0,0,0.1);
+    --halo-opacity: 1;
+  }
+
+  /* ========== 2. 浅色（白天主题）覆盖变量 ========== */
+  html[data-theme="light"] {
+    --bg: #f5f7fa;
+    --bg-card: #ffffff;
+    --bg-elevated: #f8f9fb;
+    --bg-hover: #f3f4f6;
+    --border: #e5e7eb;
+    --text-primary: #1f2937;
+    --text-secondary: #6b7280;
+    --scrollbar: #d1d5db;
+    --fatal-bg: #fef2f2;
+    --flap-warn-bg: #fef2f2;
+    --shadow-soft: 0 2px 12px rgba(0,0,0,0.06);
+    --halo-opacity: 0.8;
+  }
+
+  /* ========== 3. 全局平滑切换，改色不生硬 ========== */
+  * {
+    box-sizing: border-box; margin: 0; padding: 0;
+    transition: background-color 0.2s ease, color 0.2s ease,
+                border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text-primary);
+    padding: 12px 22px; min-height: 100vh;
+  }
+
+  /* ========== 4. 标题栏：加了主题切换按钮位置 ========== */
+  .page-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 12px;
+  }
+  h1 { font-size: 22px; font-weight: 600; }
+
+  /* 主题切换按钮 */
+  .theme-toggle {
+    padding: 8px 14px; border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    font-size: 18px; cursor: pointer;
+  }
+  .theme-toggle:hover { background: var(--bg-hover); }
+
+  /* ========== 5. 概览卡片 ========== */
+  .overview {
+    display: flex; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 16px;
+    padding: 10px 16px;
+    background: var(--bg-card);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .stat-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 8px;
+    border-right: 1px solid var(--border);
+  }
+  .stat-item:last-child { border-right: none; }
+  .stat-icon { font-size: 18px; }
+  .stat-label { font-size: 14px; color: var(--text-secondary); }
+  .stat-value {
+    font-size: 18px; font-weight: 700;
+    font-family: Consolas, monospace;
+  }
+  .stat-value.green { color: #22c55e; }
+  .stat-value.red { color: #ef4444; }
+  .stat-value.blue { color: #3b82f6; }
+  .stat-value.orange { color: #f59e0b; }
+  .stat-value.gray { color: var(--text-secondary); }
+
+
+  /* ========== 6. 服务器卡片 ========== */
+  .server-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 20px; }
+  .server-card {
+    background: var(--bg-card); border-radius: 10px;
+    border: 1px solid var(--border); overflow: hidden;
+    box-shadow: var(--shadow-soft);
+    position: relative;/* 加相对定位，给蒙版当父级，不加则蒙版就加在整个页面 */
+  }
+  
+  /* 加loading类时显示半透明蒙版 */
+  .server-card.loading::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.4); /* 半透明黑灰蒙版 */
+      border-radius: 0 0 8px 8px;
+      z-index: 10;
+      /* 简单的淡入淡出 */
+      animation: fadeIn 0.1s ease-in;
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  
+  .server-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 18px; background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border);
+    
+  }
+  .server-actions {
+    margin-left: auto;
+  }
+  .server-title { display: flex; align-items: center; gap: 8px; }
+  .server-title h3 { font-size: 18px; font-weight: 600; }
+  .server-ip { font-size: 14px; color: var(--text-secondary); font-weight: normal; margin-left: 4px; }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .connected { background: #22c55e; box-shadow: 0 0 8px #22c55e66; }
+  .disconnected { background: #ef4444; }
+  
+  /* 新增：独立的统计条，放头部下方、进程列表上方 */
+  .server-stats-bar {
+      display: flex;
+      gap: 8px;
+      padding: 10px 18px;
+      background: var(--bg-elevated);
+      align-items: center;
+      font-size: 14px;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+  }
+  .server-stats-bar span { font-weight: 600; }
+  
+  .count-total { color: #3b82f6; font-weight: 600; padding-right: 10px}
+  .count-running { color: #22c55e; font-weight: 600; padding-right: 10px}
+  .count-stopped { color: var(--text-secondary); font-weight: 600; padding-right: 10px}
+  .count-error { color: #ef4444; font-weight: 600; padding-right: 10px}
+  .count-flap { color: #f59e0b; font-weight: 600; padding-right: 10px}
+
+  /* ========== 7. 进程列表 ========== */
+  .proc-list { max-height: 500px; overflow-y: auto; padding: 18px; }
+  .proc-list::-webkit-scrollbar { width: 5px; }
+  .proc-list::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; }
+
+  .proc-item {
+    background: var(--bg-elevated); border-radius: 8px;
+    padding: 12px 14px; margin-bottom: 8px;
+    border-left: 4px solid var(--border); transition: background 0.2s;
+  }
+  .proc-item:hover { background: var(--bg-hover); }
+  .proc-RUNNING { border-left-color: #22c55e; }
+  .proc-STARTING { border-left-color: #3b82f6; }
+  .proc-STOPPING { border-left-color: #f59e0b; }
+  .proc-STOPPED, .proc-EXITED { border-left-color: #6b7280; }
+  .proc-FATAL, .proc-BACKOFF { border-left-color: #ef4444; background: var(--fatal-bg); }
+
+  /* ========== 8. Flapping 橙色呼吸动画（颜色自动适配主题） ========== */
+  .proc-item.flapping {
+    border: 2px solid #f59e0b;
+    border-left-width: 4px;
+    background: #f59e0b22;
+    animation: crash-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes crash-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, calc(0.25 * var(--halo-opacity))); }
+    50%      { box-shadow: 0 0 16px 5px rgba(245, 158, 11, calc(0.5 * var(--halo-opacity))); }
+  }
+
+  .flap-badge {
+    display: inline-block;
+    background: #ef4444; color: #fff;
+    font-size: 14px; font-weight: 700;
+    padding: 2px 6px; border-radius: 3px;
+    margin-left: 6px;
+    animation: crash-pulse 1.4s ease-in-out infinite;
+  }
+  .flap-warn {
+    font-size: 15px; color: #ef4444; font-weight: 600;
+    margin-bottom: 8px; padding: 4px 8px;
+    background: var(--flap-warn-bg);
+    border-radius: 4px; border-left: 3px solid #ef4444;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .flap-warn .ack-btn-inline {
+    padding: 2px 8px; border: none; border-radius: 3px;
+    background: #22c55e; color: #fff;
+    font-size: 14px; cursor: pointer; font-weight: 600;
+    white-space: nowrap;
+  }
+  .flap-warn .ack-btn-inline:hover { background: #16a34a; }
+
+  /* ========== 9. 进程信息 ========== */
+  .proc-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+  .proc-name { font-size: 17px; font-weight: 600; word-break: break-all; color: var(--text-primary); }
+  .proc-pid { margin-left: 6px;font-size: 15px; color: var(--text-secondary); font-family: Consolas, monospace; white-space: nowrap; }
+  .proc-status { font-size: 15px; padding: 2px 8px; border-radius: 4px; font-weight: 500; display: inline-block; margin-left: 6px; }
+  .status-RUNNING { background: #22c55e22; color: #22c55e; }
+  .status-STARTING { background: #3b82f622; color: #3b82f6; }
+  .status-STOPPING { background: #f59e0b22; color: #f59e0b; }
+  .status-STOPPED, .status-EXITED { background: #6b728022; color: #9ca3af; }
+  .status-FATAL, .status-BACKOFF { background: #ef444422; color: #ef4444; }
+  .proc-desc { font-size: 15px; color: var(--text-secondary); margin-bottom: 8px; }
+  .proc-error { font-size: 15px; color: #ef4444; margin-bottom: 8px; }
+
+  /* ========== 10. 操作按钮 ========== */
+  .proc-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn {
+    padding: 4px 10px; border: none; border-radius: 4px;
+    font-size: 15px; cursor: pointer; font-weight: 500; transition: all 0.15s;
+  }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-start { background: #22c55e22; color: #22c55e; }
+  .btn-start:not(:disabled):hover { background: #22c55e; color: #fff; }
+  .btn-stop { background: #ef444422; color: #ef4444; }
+  .btn-stop:not(:disabled):hover { background: #ef4444; color: #fff; }
+  .btn-restart { background: #f59e0b22; color: #f59e0b; }
+  .btn-restart:not(:disabled):hover { background: #f59e0b; color: #fff; }
+  
+  /* 节点刷新按钮 */
+  .btn-supervisor-refresh {
+    background: #22c55e22; color: #22c55e;
+    border: 1px solid #22c55e66;
+    padding: 5px 10px; border-radius: 4px;
+    font-size: 15px; font-weight: 600; cursor: pointer;
+    flex-shrink: 0; margin-left: 2px; transition: all 0.15s;
+  }
+  .btn-supervisor-refresh:hover:not(:disabled) { background: #22c55e; color: white; }
+  .btn-supervisor-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+  
+  /* supervisor 重启按钮 */
+  .btn-supervisor-restart {
+    background: #ef444422; color: #ef4444;
+    border: 1px solid #ef444466;
+    padding: 5px 10px; border-radius: 4px;
+    font-size: 15px; font-weight: 600; cursor: pointer;
+    flex-shrink: 0; margin-left: 2px; transition: all 0.15s;
+  }
+  .btn-supervisor-restart:hover:not(:disabled) { background: #ef4444; color: white; }
+  .btn-supervisor-restart:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ========== 11. 减少动效适配 ========== */
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation-duration: 0.01ms !important; }
+  }
+  
+  
+</style>
+
+</head>
+<body>
+
+<div class="page-header">
+  <h1>🚀 分布式 Supervisor 进程实时监控（websockets 版）</h1>
+  <button class="theme-toggle" id="themeToggle">🌙 夜晚</button>
+</div>
+
+  <div class="overview">
+    <div class="stat-item">
+      <span class="stat-icon stat-value black">🖥️</span>
+      <span class="stat-label">总节点</span>
+      <span class="stat-value black" id="stat-total-nodes">0</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-icon stat-value green">●</span>
+      <span class="stat-label">在线节点</span>
+      <span class="stat-value green" id="stat-online-nodes">0</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-icon stat-value blue">⚙</span>
+      <span class="stat-label">进程总数</span>
+      <span class="stat-value blue" id="stat-total-procs">0</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-icon stat-value green">►</span>
+      <span class="stat-label">运行中</span>
+      <span class="stat-value green" id="stat-running-procs">0</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-icon stat-value gray">■</span>
+      <span class="stat-label">已终止</span>
+      <span class="stat-value gray" id="stat-dead-procs">0</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-icon stat-value red">✖</span>
+      <span class="stat-label">启动失败</span>
+      <span class="stat-value red" id="stat-error-procs">0</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-icon stat-value orange">☠</span>
+      <span class="stat-label">崩溃进程</span>
+      <span class="stat-value orange" id="stat-flapping-procs">0</span>
+    </div>
+  </div>
+
+  <div class="server-grid" id="dashboard"></div>
+
+<script>
+  // ============== 服务器列表：改成你自己的节点 ==============
+  const servers = [
+    { name: "北京01", ip: "192.168.1.121", port: 8765 },
+    { name: "上海02", ip: "192.168.1.122",  port: 8765 },
+    { name: "广州03", ip: "192.168.1.123", port: 8765 },
+  ];
+  // ==========================================================
+
+  const serverData = {};
+  let reqIdCounter = 0;
+  let pendingRequests = {};
+
+  function initDashboard() {
+    const dashboard = document.getElementById('dashboard');
+    servers.forEach(server => {
+      serverData[server.ip] = {connected: false, processes: {}, ws: null };
+      
+      console.log("serverData:");
+      console.log(serverData);
+      
+      const card = document.createElement('div');
+      card.className = 'server-card';
+      card.id = `card-${server.ip}`;
+      card.innerHTML = `
+        <div class="server-header">
+            <!-- 第一行：左边标题，右边按钮，水平排列 -->
+            <div class="server-title">
+                <span class="status-dot disconnected" id="dot-${server.ip}"></span>
+                <h3>${server.name}<span class="server-ip">${server.ip}</span></h3>
+            </div>
+            <div class="server-actions">
+                <button class="btn btn-supervisor-restart" id="btn-restart-sv-${server.ip}" onclick="restartSupervisor('${server.ip}')">⚠︎‌ 重启 Supervisor</button>
+            </div>
+            
+        </div>
+        <div class="server-stats-bar">
+          
+            进程<span class="count-total" id="total-${server.ip}">0</span>
+            运行<span class="count-running" id="run-${server.ip}">0</span>
+            停止<span class="count-stopped" id="stop-${server.ip}">0</span>
+            异常<span class="count-error" id="err-${server.ip}">0</span>
+            崩溃<span class="count-flap" id="flap-${server.ip}">0</span>
+          
+          <div class="server-actions">
+              <button class="btn btn-supervisor-refresh" id="btn-refresh-${server.ip}" onclick="refreshNode('${server.ip}')">⟲ 刷新</button>
+          </div>
+        </div>
+        <div class="proc-list" id="procs-${server.ip}"></div>
+        `;
+      dashboard.appendChild(card);
+      connectToServer(server);
+      
+    });
+    updateGlobalStats();
+  }
+
+  function connectToServer(server) {
+    console.log('开始连接 server:');
+    console.log(server);
+    const ws = new WebSocket('ws://' + server.ip + ':' + server.port);
+
+    ws.onopen = () => {
+      serverData[server.ip].connected = true;
+      serverData[server.ip].ws = ws;
+      document.getElementById('dot-' + server.ip).className = 'status-dot connected';
+      // console.log(`${server.name} 已连接`);
+      console.log(server.name + "已连接");
+      updateGlobalStats();
+    };
+
+    ws.onclose = () => {
+      serverData[server.ip].connected = false;
+      serverData[server.ip].ws = null;
+      const dot = document.getElementById('dot-' + server.ip);
+      if (dot) dot.className = 'status-dot disconnected';
+      if (currentLogServer === server.ip) closeLogModal();
+      setTimeout(() => connectToServer(server), 3000);
+      updateGlobalStats();
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'full_sync') {
+        const container = document.getElementById('procs-' + server.ip);
+        container.innerHTML = '';
+        serverData[server.ip].processes = {};
+        data.data.forEach(proc => {
+          serverData[server.ip].processes[proc.full_name] = proc;
+          renderProcItem(server.ip, proc);
+        });
+        updateServerStats(server.ip);
+        updateGlobalStats();
+        return;
+      }
+
+      if (data.type === 'state_change') {
+        const procName = data.process;
+        const statename = data.event.replace('PROCESS_STATE_', '');//监听状态，不是进程的状态信息
+        const existing = serverData[server.ip].processes[procName] || {};
+        const wasFlapping = existing.flapping || false;
+        const updated = Object.assign({}, existing, {
+          full_name: procName,
+          name: data.raw_process || procName.split(':').pop(),
+          group: data.group || '',
+          from_state: data.from_state,//
+          expected: data.expected,//
+          statename: statename,
+          pid: data.pid || existing.pid || 0,
+          flapping: !!data.flapping,
+          crash_count: data.crash_count || 0,
+          last_restart_ts: data.last_restart_ts || 0,
+          acknowledged: !!data.acknowledged
+        });
+        serverData[server.ip].processes[procName] = updated;
+        renderProcItem(server.ip, updated);
+        
+        updateServerStats(server.ip);
+        updateGlobalStats();
+        return;
+      }
+
+      if (data.type === 'command_result') {
+        const cb = pendingRequests[data.req_id];
+        if (cb) {
+          clearTimeout(cb.timeout);
+          cb.resolve(data.result);
+          delete pendingRequests[data.req_id];
+        }
+        if (!data.result.success) {
+          showProcError(server.ip, data.process, data.result.error);
+        }
+        return;
+      }
+
+    };
+  }
+
+  function sendCommand(serverIp, process, action) {
+    const ws = serverData[serverIp] && serverData[serverIp].ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      return Promise.resolve({ success: false, error: '节点未连接' });
+    }
+    const req_id = ++reqIdCounter;
+    ws.send(JSON.stringify({
+      type: 'command', 
+      action: action, 
+      process: process, 
+      req_id: req_id 
+    }));
+    return new Promise((resolve) => {
+      pendingRequests[req_id] = {
+        resolve: resolve,
+        timeout: setTimeout(() => {
+          resolve({ success: false, error: '请求超时' });
+          delete pendingRequests[req_id];
+        }, 8000)
+      };
+    });
+  }
+
+  // 发送"确认已处理崩溃"指令
+  function acknowledgeFlap(serverIp, process) {
+    const ws = serverData[serverIp] && serverData[serverIp].ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      alert('节点未连接');
+      return;
+    }
+    const req_id = ++reqIdCounter;
+    ws.send(JSON.stringify({
+      type: 'acknowledge_flap', 
+      process: process, 
+      req_id: req_id 
+    }));
+    return new Promise((resolve) => {
+      pendingRequests[req_id] = {
+        resolve: resolve,
+        timeout: setTimeout(() => {
+          resolve({ success: false, error: '请求超时' });
+          delete pendingRequests[req_id];
+        }, 5000)
+      };
+    });
+  }
+
+
+  /**
+   * 同时提取pid和uptime
+   * @param {any} desc 描述文本 pid 123, uptime 0:00:02（null/undefined/错误文本都兼容）
+   * @returns {{ pid: number|null, uptime: string|null, uptimeSec: number|null }}
+   */
+  function parseProcDesc(desc) {
+    const result = { pid: null, uptime: null, uptimeSec: null };
+    if (typeof desc !== 'string') return result;
+    
+    // 提取pid
+    const pidMatch = desc.match(/pid\s+(\d+)/);
+    if (pidMatch) result.pid = Number(pidMatch[1]); // 123
+    
+    // 提取uptime
+    const uptimeMatch = desc.match(/uptime\s+(\d+):(\d+):(\d+)/);
+    if (uptimeMatch) {
+      const [, h, m, s] = uptimeMatch;
+      result.uptime = uptimeMatch[0].replace('uptime ', ''); // 拿到"0:00:02"
+      result.uptimeSec = Number(h)*3600 + Number(m)*60 + Number(s); // 2
+    }
+    
+    return result;
+  }
+
+  function smartUpdateDesc(oldDesc, newPid, statename) {
+    
+    let obj = parseProcDesc(oldDesc);//{ pid: 123, uptime: 0:00:02, uptimeSec: 2 }
+    
+    const pid = Number(newPid);
+    
+    // 1. 新pid是0 → 这种情况针对的是刷新页面，因为 新pid 如果是由监听事件返回，其返回的 pid 不可能为0
+    // 只有在刷新时 使用 全局的 pid 时才会返回 0
+    // 旧描述本身就是错误/停止文本 → 原样保留错误（刷新页面时，错误文本不被覆盖）
+    if (!pid) return ["", oldDesc];
+    
+    // 2. 只要是未正常运行，就不显示 pid 信息
+    if (statename != "RUNNING")
+    {
+      return ["", "--"];
+    }
+    
+    // 3. 新旧pid对比
+    const m = oldDesc.match(/pid\s+(\d+)/);
+    const oldPid = m ? Number(m[1]) : "";//提取pid值
+    // 新旧pid相同则 uptime 继续涨
+    if (oldPid === pid) return [pid, "已运行 "+obj.uptime];
+    // 此时程序刚启动，只会返回 pid 123456，这里我把它补全了
+    return [pid, "0:00:00"];
+    
+  }
+
+  function tsToBeijing(ts) {
+    const d = new Date(ts * 1000);
+    const p = new Intl.DateTimeFormat('zh-CN', {
+      timeZone: 'Asia/Shanghai',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false
+    }).formatToParts(d);
+
+    const g = t => p.find(x => x.type === t).value;
+    return `${g('year')}-${g('month')}-${g('day')} ${g('hour')}:${g('minute')}:${g('second')}`;
+  }
+
+
+  /**
+   * 计算两个时间戳的时长，返回 天/时/分/秒 格式
+   * @param {number} startTs 开始时间戳（秒或毫秒都支持）
+   * @param {number} endTs 结束时间戳（秒或毫秒都支持）
+   * @returns {string} 格式化后的时长，如 "0:00:02"、"1:23:45:06"（天:时:分:秒，小时不补零，分秒补两位）
+   */
+  function formatDuration(startTs, endTs) {
+    // 1. 兼容秒/毫秒时间戳：小于1e12认为是秒级，统一转成毫秒计算
+    const start = startTs < 1e12 ? startTs * 1000 : startTs;
+    const end = endTs < 1e12 ? endTs * 1000 : endTs;
+
+    // 2. 算总秒数（避免负数，结束时间小于开始时间返回0）
+    let totalSec = Math.max(0, Math.floor((end - start) / 1000));
+
+    // 3. 拆分天/时/分/秒
+    const day = Math.floor(totalSec / 86400);
+    totalSec %= 86400;
+    const hour = Math.floor(totalSec / 3600);
+    totalSec %= 3600;
+    const min = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+
+    // 4. 补零：时分秒固定两位，天数不补零
+    const pad = n => String(n).padStart(2, '0');
+
+    // 5. 超过24小时（有天数）才显示天，否则只有时分秒
+    if (day > 0) {
+      return `${day}天${pad(hour)}:${pad(min)}:${pad(sec)}`;
+    }
+    return `${pad(hour)}:${pad(min)}:${pad(sec)}`;
+  }
+
+
+  function smartUpdateDesc_time(oldDesc, newPid, statename, start, stop, state) {
+    
+    const nowSec = Math.floor(Date.now() / 1000);//当时时间戳，秒
+    const pid = Number(newPid);
+    
+    const STATE_CODE = {
+        STOPPED: 0, 
+        STARTING: 10, 
+        RUNNING: 20, 
+        BACKOFF: 30,   
+        STOPPING: 40, 
+        EXITED: 100, 
+        FATAL: 200, 
+    };
+    
+    // 程序未运行的状态组
+    const DEAD_CODES = [STATE_CODE.STOPPED, STATE_CODE.EXITED, STATE_CODE.FATAL];
+    // → [0, 100, 200]
+    
+    /*
+     * 使用 statename 的状态判断程序的运行状态有点问题：
+     * 我把某个进程停止了，然后刷新页面，再点启动按钮，会获取到另一台服务器的监听程序的 pid 和 运行时长，这很奇怪！！！
+    */
+    if (DEAD_CODES.includes(Number(state))) {
+      formatText = ["", tsToBeijing(stop) + " 终止"];   // "2026-10-30 01:10:38";
+    }
+    
+    if (state == 20){
+      formatText = [pid, "已运行 " + formatDuration(start, nowSec)];   // "3天01:10:38";
+    }
+    
+    // 1. 新pid是0 → 这种情况针对的是刷新页面，因为 新pid 如果是由监听事件返回，其返回的 pid 不可能为0
+    // 只有在刷新时 使用 全局的 pid 时才会返回 0
+    if (!pid) return formatText;
+    
+    // 2. 事件状态改变时，只要是未正常运行，就不显示信息
+    if (statename != "RUNNING")
+    {
+      return ["", "--"];
+    }
+    
+    // 3. 新旧pid对比
+    const m = oldDesc.match(/pid\s+(\d+)/);
+    const oldPid = m ? Number(m[1]) : "";//提取pid值
+    // 新旧pid相同则 uptime 继续涨
+    if (oldPid === pid) return formatText;//刷新页面时
+    // 此时程序刚启动，只会返回 pid 123456，这里我把它改变了一下
+    return [pid, "0:00:00"];//状态改变时
+    
+  }
+
+  function renderProcItem(serverIp, proc) {
+    const container = document.getElementById('procs-' + serverIp);
+    const domId = 'proc-' + serverIp + '-' + proc.full_name;
+    let el = document.getElementById(domId);
+    if (!el) {
+      el = document.createElement('div');
+      el.id = domId;
+      el.className = 'proc-item';
+      container.appendChild(el);
+    }
+    
+    const isRunning = proc.statename === 'RUNNING';
+    const isTransit = ['STARTING', 'STOPPING'].indexOf(proc.statename) !== -1;
+    const disableStart   = isRunning || isTransit;//已经运行 或 在过渡状态时，禁用启动按钮
+    const disableStop    = !isRunning || isTransit;//未运行 或 在过渡状态时，禁用停止按钮
+    const disableRestart = !isRunning || isTransit;//未运行 或 在过渡状态时，禁用重启按钮
+    const isFlapping = !!proc.flapping;
+    
+    const classes = ['proc-item', 'proc-' + proc.statename];
+    if (isFlapping) classes.push('flapping');
+    el.className = classes.join(' ');
+    
+    // 显示非0退出码，异常退出
+    let errorHtml = '';
+    if (['FATAL', 'BACKOFF', 'EXITED'].includes(proc.statename) && proc.exitstatus && proc.exitstatus !== 0) {
+        errorHtml = `<div class="proc-error" style="display:none">退出码: ${proc.exitstatus}，请检查日志</div>`;
+    }
+    
+    // 崩溃警告条（含"确认已处理"按钮）
+    let flapHtml = '';
+    if (isFlapping) {
+      flapHtml = `
+        <div class="flap-warn">
+          <span>⚠️ 频繁重启 ${proc.crash_count} 次，请处理！</span>
+          <button class="ack-btn-inline" onclick="doAck('${serverIp}','${proc.full_name}', this)">✓ 确认已处理</button>
+        </div>
+        `;
+    }
+    const flapBadge = isFlapping ? '<span class="flap-badge" style="display:none">FLAPPING</span>' : '';
+    
+    // 在手动启停（或者进程状态改变时），使用事件监听程序实时返回的 proc.pid, 因为全局同步不是实时同步的，所以导致不能及时更新，就比如： proc.description 描述中的 pid, uptime
+    // let desc_arr = smartUpdateDesc(proc.description, proc.pid, proc.statename);
+    
+    let desc_arr = smartUpdateDesc_time(proc.description, proc.pid, proc.statename, proc.start, proc.stop, proc.state);
+    
+    el.innerHTML = `
+      <div class="proc-top">
+        <div>
+          <span class="proc-name">${proc.name}</span>
+          <span class="proc-pid">${desc_arr[0] ? desc_arr[0] : ""}</span>
+          ${flapBadge}
+        </div>
+        <span class="proc-status status-${proc.statename}">${proc.statename}</span>
+      </div>
+      ${errorHtml}
+      ${flapHtml}
+      <div class="proc-desc">${desc_arr[1]}</div>
+      <div class="proc-actions">
+        <button class="btn btn-start" ${disableStart ? 'disabled' : ''} onclick="doAction('${serverIp}', '${proc.full_name}', 'start', this)">▶ 启动</button>
+        <button class="btn btn-stop" ${disableStop ? 'disabled' : ''} onclick="doAction('${serverIp}', '${proc.full_name}', 'stop', this)">■ 终止</button>
+        <button class="btn btn-restart" ${disableRestart ? 'disabled' : ''} onclick="doAction('${serverIp}', '${proc.full_name}', 'restart', this)">↻ 重启</button>
+      </div>
+      `;
+  }
+
+  function showProcError(serverIp, procName, errMsg) {
+    const el = document.getElementById('proc-' + serverIp + '-' + procName);
+    if (!el) return;
+    const errEl = el.querySelector('.proc-error');
+    if (!errEl) return;
+    errEl.textContent = '❌ ' + errMsg;
+    errEl.style.display = 'block';
+    setTimeout(() => { errEl.style.display = 'none'; }, 5000);
+  }
+
+  function doAction(serverIp, proc, action, btn) {
+    if (btn) btn.disabled = true; // 🔒 点击瞬间禁用，防连点
+    
+    sendCommand(serverIp, proc, action).then(result => {
+      if (!result.success) showProcError(serverIp, proc, result.error);
+    });    
+  }
+
+  function doAck(serverIp, proc, btnEl) {
+    if (!confirm('确认已处理该问题？警告将立即清除。\n（若进程再次重启达到阈值，会重新标记）')) return;
+    btnEl.disabled = true;
+    btnEl.textContent = '处理中...';
+    acknowledgeFlap(serverIp, proc).then(result => {
+      if (!result.success) {
+        alert('确认失败: ' + (result.error || '未知错误'));
+        btnEl.disabled = false;
+        btnEl.textContent = '✓ 确认已处理';
+      }
+      // 成功后后端会立即广播 full_sync，前端会自动刷新，不需要手动改 DOM
+    });
+  }
+
+  function restartSupervisor(serverIp) {
+      if (!confirm('⚠️ 危险操作！\n\n重启Supervisor会导致该节点所有被管理进程短暂中断，Supervisor重启后会自动拉起进程。\n\n是否确认继续？')) {
+          return;
+      }
+      const ws = serverData[serverIp].ws;
+      console.log('提取 wsUrl:');
+      console.log(ws.url);//ws://192.168.1.121:8765/
+      
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+          alert('节点未连接，无法执行操作');
+          return;
+      }
+      
+      // 用 JS 内置的 URL 解析器，拆出 ip 和 port‌
+      const u = new URL(ws.url);
+      const s = {
+        ip: u.hostname, // "192.168.1.121"
+        port: u.port   // "8765" 注意这里是字符串
+      };
+
+      console.log(s); // {ip: '192.168.1.121', port: '8765'}
+      
+      const btn = document.getElementById(`btn-restart-sv-${serverIp}`);
+      btn.disabled = true;
+      ori_btnText = btn.textContent; // 按钮原始名称
+      btn.textContent = '重启中...';
+      const req_id = ++reqIdCounter;
+      ws.send(JSON.stringify({
+          type: 'restart_supervisor',
+          req_id: req_id
+      }));
+      // 5秒后恢复按钮状态（Supervisor重启需要时间）
+      setTimeout(() => {
+          btn.disabled = false;
+          btn.textContent = ori_btnText; // 改回原名
+          connectToServer(s); // 更新当前服务器列表
+      }, 5000);
+      
+  }
+
+
+  function updateServerStats(ip) {
+    const procs = Object.values((serverData[ip] && serverData[ip].processes) || {});
+    
+    const flapping = procs.filter(p => p.flapping).length;
+    // 👇 每个桶都先排除带崩溃标记的，它们只归 flapping 这一桶
+    const total    = procs.filter(p => p.statename).length;
+    const running  = procs.filter(p => !p.flapping && p.statename === 'RUNNING').length;
+    const stopped  = procs.filter(p => !p.flapping && ['STOPPED', 'EXITED'].includes(p.statename)).length;
+    const error    = procs.filter(p => !p.flapping && ['FATAL', 'BACKOFF'].includes(p.statename)).length;
+    
+    const totalEl  = document.getElementById('total-' + ip);
+    const runEl  = document.getElementById('run-' + ip);
+    const stopEl = document.getElementById('stop-' + ip);
+    const errEl  = document.getElementById('err-' + ip);
+    const flapEl = document.getElementById('flap-' + ip);
+    
+    if (totalEl)  totalEl.textContent  = total;
+    if (runEl)  runEl.textContent  = running;
+    if (stopEl) stopEl.textContent = stopped;
+    if (errEl)  errEl.textContent  = error;
+    if (flapEl) flapEl.textContent = flapping;
+  }
+
+
+  function updateGlobalStats() {
+    let online = 0, total = 0, running = 0, dead = 0, error = 0, flapping = 0;
+    
+    Object.values(serverData).forEach(s => {
+      if (s.connected) online++;
+      
+      Object.values(s.processes).forEach(p => {
+        if (!p) return;
+        total++;                       // 总数照常统计（含 flapping）
+        
+        // 👇 关键：只要带崩溃标记，就只进 flapping 桶，其余一概不参与
+        if (p.flapping) {
+          flapping++;
+          return;                      // 相当于 forEach 里的 continue
+        }
+        
+        // 下面只有"非 flapping"的进程才会走到，三个桶互斥
+        if (p.statename === 'RUNNING') running++;
+        if (['STOPPED', 'EXITED'].includes(p.statename)) dead++;
+        if (['FATAL', 'BACKOFF'].includes(p.statename)) error++;
+      });
+    });
+
+    document.getElementById('stat-total-nodes').textContent = servers.length;
+    document.getElementById('stat-online-nodes').textContent = online;
+    document.getElementById('stat-total-procs').textContent = total;
+    document.getElementById('stat-running-procs').textContent = running;
+    document.getElementById('stat-dead-procs').textContent = dead;
+    document.getElementById('stat-error-procs').textContent = error;
+    document.getElementById('stat-flapping-procs').textContent = flapping;
+  }
+  
+  initDashboard();
+  
+  /*  背景样式切换 */
+  // 1. 初始化：读本地存储，没有则默认深色页面
+  const savedTheme = localStorage.getItem('theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', savedTheme);
+  const toggleBtn = document.getElementById('themeToggle');
+
+  // 2. 更新按钮文字
+  function updateBtn(theme) {
+    toggleBtn.textContent = theme === 'dark' ? '☀️ 白天' : '🌙 夜晚';
+  }
+  updateBtn(savedTheme);
+
+  // 3. 点击切换
+  toggleBtn.addEventListener('click', () => {
+    const current = document.documentElement.getAttribute('data-theme');
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+    updateBtn(next);
+  });
+  
+  // 手动刷新单个节点状态
+  function refreshNode(serverIp) {
+      /* 节点刷新蒙版 */
+      const procList = document.getElementById(`card-${serverIp}`);
+      if (!procList || procList.classList.contains('loading')) return;
+      procList.classList.add('loading'); // 加类，显示蒙版
+      setTimeout(() => procList.classList.remove('loading'), 1000); // 1秒后移除类，蒙版消失
+      
+      /* 点击刷新按钮 */
+      const btn = document.getElementById(`btn-refresh-${serverIp}`);
+      ori_btnText = btn.textContent;
+      
+      if (!btn || btn.disabled) return;
+      const ws = serverData[serverIp]?.ws;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+          alert('节点未连接，无法刷新');
+          return;
+      }
+      btn.textContent = '刷新中...';
+      btn.disabled = true;
+      const reqId = ++reqIdCounter;
+      // 发刷新指令给对应节点
+      ws.send(JSON.stringify({
+          type: 'refresh',
+          req_id: reqId
+      }));
+      // 1秒超时恢复按钮
+      setTimeout(() => {
+          btn.disabled = false;
+          btn.textContent = ori_btnText;
+      }, 1000);
+      
+  }
+  
+</script>
+
+</body>
+</html>
