@@ -5,11 +5,27 @@
 > 
 > 我就遇到过把主配置文件生成为 echo_supervisord_conf > /etc/supervisor/supervisord.ini，我启动时用 -c 指定了此配置文件，但是在我使用 supervisorctl 命令时，直接提示错误，必须指定配置文件才行。
 ```
-root@orangepizero3:~# supervisorctl status
+root@localhost:~# TZ=Asia/Shanghai /usr/local/bin/supervisord -c /etc/supervisor/supervisord.ini
+root@localhost:~# supervisorctl status all
 http://localhost:9001 refused connection
-root@orangepizero3:~# supervisorctl -c /etc/supervisor/supervisord.ini status
+root@localhost:~# supervisorctl reload
+error: <class 'ConnectionRefusedError'>, [Errno 111] Connection refused: file: /usr/lib/python3.11/socket.py line: 836
+root@localhost:~# ps -ef | grep supervisord
+root        1245       1  0 09:41 ?        00:00:00 /usr/bin/python3 /usr/local/bin/supervisord -c /etc/supervisor/supervisord.ini
+root        1275    1239  0 09:42 pts/0    00:00:00 grep supervisord
+root@localhost:~# supervisorctl status
+http://localhost:9001 refused connection
+root@localhost:~# supervisorctl -c /etc/supervisor/supervisord.ini status
 Multi-resolution                 RUNNING   pid 1945, uptime 0:00:06
 state_broadcaster                RUNNING   pid 1469, uptime 0:38:01
+root@localhost:~# supervisorctl status
+unix:///tmp/supervisor.sock no such file
+root@localhost:~# TZ=Asia/Shanghai /usr/local/bin/supervisord -c /etc/supervisor/supervisord.conf
+root@localhost:~# supervisorctl status
+Multi-resolution                 RUNNING   pid 2177, uptime 0:00:04
+state_broadcaster                RUNNING   pid 2176, uptime 0:00:04
+root@localhost:~# supervisorctl reload
+Restarted supervisord
 
 ```
 ### 安装及初始化配置
