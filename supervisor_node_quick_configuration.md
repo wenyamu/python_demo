@@ -84,7 +84,7 @@ startsecs = 3 ;稳定运行N秒后，从“正在启动”转成“正在运行�
 startretries = 3 ;进程启动失败后，最大尝试的次数。当超过3次后，supervisor将把此进程的状态置为FATAL
 stopasgroup = true ;确保关闭supervisord时停止所有相关子进程
 killasgroup = true ;确保关闭supervisord时停止所有相关子进程
-environment=TZ="Asia/Shanghai"  # 单独给进程设上海时区，不用改全局supervisord启动参数
+environment=TZ="Asia/Shanghai"  # 单独给进程设上海时区，只修改此程序的环境变量
 
 ;日志目录必须事先存在，不然会出错
 ;stdout_logfile = /tmp/time_app_out.log
