@@ -10,7 +10,6 @@
     </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- <meta http-equiv="refresh" content="30;url={{ url_for('index') }}"> -->
     <title>Supervisor 进程监控（RPC版）</title>
     <style>
         /* ========== 1. 全局变量：默认深色主题 ========== */
@@ -570,292 +569,295 @@
     <!-- 操作提示 -->
     <div class="toast" id="toast"></div>
 
-    <script>
-        // ========== 主题切换（初始化已经在head最顶部执行，这里只绑定按钮） ==========
-        const toggleBtn = document.getElementById('themeToggle');
-        function updateThemeBtn(theme) {
-            toggleBtn.textContent = theme === 'dark' ? '☀️ 白天' : '🌙 夜晚';
-        }
-        updateThemeBtn(savedTheme);
-        toggleBtn.addEventListener('click', () => {
-            const current = document.documentElement.getAttribute('data-theme');
-            const next = current === 'dark' ? 'light' : 'dark';
-            document.documentElement.setAttribute('data-theme', next);
-            localStorage.setItem('theme', next);
-            updateThemeBtn(next);
+<script>
+    // ========== 主题切换（初始化已经在head最顶部执行，这里只绑定按钮） ==========
+    const toggleBtn = document.getElementById('themeToggle');
+    function updateThemeBtn(theme) {
+        toggleBtn.textContent = theme === 'dark' ? '☀️ 白天' : '🌙 夜晚';
+    }
+    updateThemeBtn(savedTheme);
+    toggleBtn.addEventListener('click', () => {
+        const current = document.documentElement.getAttribute('data-theme');
+        const next = current === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('theme', next);
+        updateThemeBtn(next);
+    });
+
+    // 首帧渲染完恢复过渡效果
+    window.requestAnimationFrame(() => {
+        setTimeout(() => document.documentElement.classList.remove('no-transitions'), 100);
+    });
+
+
+    // ========== 统计单节点数据 ==========
+    function countServerStats(server) {
+        const procs = server.querySelectorAll('.process-item');
+        let total = 0, running = 0, stopped = 0, error = 0;
+        
+        procs.forEach(p => {
+            total++;
+            
+            if (p.classList.contains('RUNNING') || p.classList.contains('running') ||
+                p.classList.contains('STARTING') || p.classList.contains('STOPPING')) {
+                running++;
+            } else if (p.classList.contains('STOPPED') || p.classList.contains('EXITED') ||
+                       p.classList.contains('stopped') || p.classList.contains('exited')) {
+                stopped++;
+            } else if (p.classList.contains('FATAL') || p.classList.contains('BACKOFF') ||
+                       p.classList.contains('fatal') || p.classList.contains('backoff')) {
+                error++;
+            }
+        });
+        
+        return { total, running, stopped, error };
+    }
+
+
+    // ========== 更新所有统计（全局+单节点） ==========
+    function updateAllStats() {
+        const servers = document.querySelectorAll('.server-block');
+        let totalNodes = servers.length;
+        let onlineNodes = 0;
+        let gTotal = 0, gRunning = 0, gStopped = 0, gError = 0;
+        
+        servers.forEach(server => {
+            const hasError = server.querySelector('.error-tip');
+            if (!hasError) onlineNodes++;
+            
+            const stats = countServerStats(server);
+            gTotal += stats.total;
+            gRunning += stats.running;
+            gStopped += stats.stopped;
+            gError += stats.error;
+            
+            // 更新单节点统计数字
+            const sn = server.dataset.server;
+            const statEl = document.getElementById('node-stats-' + sn);
+            if (statEl) {
+                statEl.querySelector('.node-total').textContent = stats.total;
+                statEl.querySelector('.node-running').textContent = stats.running;
+                statEl.querySelector('.node-stopped').textContent = stats.stopped;
+                statEl.querySelector('.node-error').textContent = stats.error;
+                
+            }
         });
 
-        // 首帧渲染完恢复过渡效果
-        window.requestAnimationFrame(() => {
-            setTimeout(() => document.documentElement.classList.remove('no-transitions'), 100);
-        });
+        // 更新全局统计
+        document.getElementById('stat-total-nodes').textContent = totalNodes;
+        document.getElementById('stat-online-nodes').textContent = onlineNodes;
+        document.getElementById('stat-total-procs').textContent = gTotal;
+        document.getElementById('stat-running-procs').textContent = gRunning;
+        document.getElementById('stat-stopped-procs').textContent = gStopped;
+        document.getElementById('stat-error-procs').textContent = gError;
+        
+    }
 
-        // ========== 统计单节点数据 ==========
-        function countServerStats(server) {
-            const procs = server.querySelectorAll('.process-item');
-            let total = 0, running = 0, stopped = 0, error = 0;
 
-            procs.forEach(p => {
-                total++;
-                
-                if (p.classList.contains('RUNNING') || p.classList.contains('running') ||
-                    p.classList.contains('STARTING') || p.classList.contains('STOPPING')) {
-                    running++;
-                } else if (p.classList.contains('STOPPED') || p.classList.contains('EXITED') ||
-                           p.classList.contains('stopped') || p.classList.contains('exited')) {
-                    stopped++;
-                } else if (p.classList.contains('FATAL') || p.classList.contains('BACKOFF') ||
-                           p.classList.contains('fatal') || p.classList.contains('backoff')) {
-                    error++;
-                }
-            });
-
-            return { total, running, stopped, error };
+    // 新增：记录用户正在交互/悬停/滚动的节点，自动刷新时跳过
+    const ACTIVE_NODES = new Set();
+    
+    // === 仅刷新单个节点（加silent参数：true=静默自动刷新，false=手动刷新带蒙版） ===
+    async function refreshSingleServer(serverEl, silent = false) {
+        const sn = serverEl.dataset.server;
+        const refreshBtn = serverEl.querySelector('.btn-refresh-node');
+        
+        // 静默自动刷新：用户正在这个节点上悬停/滚动，直接跳过
+        if (silent && ACTIVE_NODES.has(sn)) {
+            return;
         }
-
-        // ========== 更新所有统计（全局+单节点） ==========
-        function updateAllStats() {
-            const servers = document.querySelectorAll('.server-block');
-            let totalNodes = servers.length;
-            let onlineNodes = 0;
-            let gTotal = 0, gRunning = 0, gStopped = 0, gError = 0;
-
-            servers.forEach(server => {
-                const hasError = server.querySelector('.error-tip');
-                if (!hasError) onlineNodes++;
-
-                const stats = countServerStats(server);
-                gTotal += stats.total;
-                gRunning += stats.running;
-                gStopped += stats.stopped;
-                gError += stats.error;
-                
-
-                // 更新单节点统计数字
-                const sn = server.dataset.server;
-                const statEl = document.getElementById('node-stats-' + sn);
-                if (statEl) {
-                    statEl.querySelector('.node-total').textContent = stats.total;
-                    statEl.querySelector('.node-running').textContent = stats.running;
-                    statEl.querySelector('.node-stopped').textContent = stats.stopped;
-                    statEl.querySelector('.node-error').textContent = stats.error;
+        
+        // ========== 刷新前：只记节点内部状态 ==========
+        // 1. 折叠状态，刷新前，记录每个分组的折叠状态（true=折叠，false=展开）
+        const foldStates = [];
+        serverEl.querySelectorAll('[onclick*="toggleGroup"]').forEach(h => {
+            const container = h.nextElementSibling;
+            foldStates.push(container ? container.classList.contains('hidden') : null);
+        });
+        // 2. 记录滚动位置（serverEl 自身 + 内部所有元素，按顺序存）
+        const scrollStates = [serverEl.scrollTop];
+        serverEl.querySelectorAll('*').forEach(el => {
+            scrollStates.push(el.scrollTop);
+        });
+        
+        /* 3. 记录节点高度，防止重排抖
+        const oldHeight = serverEl.offsetHeight;
+        serverEl.style.minHeight = oldHeight + 'px';
+        */
+        
+        // 手动刷新才显示蒙版+按钮转圈，自动静默刷新时不显示
+        if (!silent) {
+            if (refreshBtn) refreshBtn.classList.add('loading');
+            serverEl.classList.add('loading');
+        }
+        
+        try {
+            const res = await fetch(window.location.href, { cache: 'no-cache' });
+            const text = await res.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(text, 'text/html');
+            const newServer = doc.querySelector(`.server-block[data-server="${sn}"]`);
+            
+            if (newServer) {
+                // 双帧原子更新，浏览器看不到中间态
+                requestAnimationFrame(() => {
+                    serverEl.innerHTML = newServer.innerHTML;
                     
-                }
-            });
-
-            // 更新全局统计
-            document.getElementById('stat-total-nodes').textContent = totalNodes;
-            document.getElementById('stat-online-nodes').textContent = onlineNodes;
-            document.getElementById('stat-total-procs').textContent = gTotal;
-            document.getElementById('stat-running-procs').textContent = gRunning;
-            document.getElementById('stat-stopped-procs').textContent = gStopped;
-            document.getElementById('stat-error-procs').textContent = gError;
-            
-        }
-
-
-        
-        // 新增：记录用户正在交互/悬停/滚动的节点，自动刷新时跳过
-        const ACTIVE_NODES = new Set();
-        
-        // === 仅刷新单个节点（加silent参数：true=静默自动刷新，false=手动刷新带蒙版） ===
-        async function refreshSingleServer(serverEl, silent = false) {
-            const sn = serverEl.dataset.server;
-            const refreshBtn = serverEl.querySelector('.btn-refresh-node');
-            
-            // 静默自动刷新：用户正在这个节点上悬停/滚动，直接跳过
-            if (silent && ACTIVE_NODES.has(sn)) {
-                return;
-            }
-            
-            // ========== 刷新前：只记节点内部状态 ==========
-            // 1. 折叠状态，刷新前，记录每个分组的折叠状态（true=折叠，false=展开）
-            const foldStates = [];
-            serverEl.querySelectorAll('[onclick*="toggleGroup"]').forEach(h => {
-                const container = h.nextElementSibling;
-                foldStates.push(container ? container.classList.contains('hidden') : null);
-            });
-            // 2. 记录滚动位置（serverEl 自身 + 内部所有元素，按顺序存）
-            const scrollStates = [serverEl.scrollTop];
-            serverEl.querySelectorAll('*').forEach(el => {
-                scrollStates.push(el.scrollTop);
-            });
-            // 3. 锁死节点高度，防止重排抖
-            const oldHeight = serverEl.offsetHeight;
-            serverEl.style.minHeight = oldHeight + 'px';
-            
-            // 手动刷新才显示蒙版+按钮转圈，自动静默刷新时不显示
-            if (!silent) {
-                if (refreshBtn) refreshBtn.classList.add('loading');
-                serverEl.classList.add('loading');
-            }
-            
-            try {
-                const res = await fetch(window.location.href, { cache: 'no-cache' });
-                const text = await res.text();
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(text, 'text/html');
-                const newServer = doc.querySelector(`.server-block[data-server="${sn}"]`);
-                
-                if (newServer) {
-                    // 双帧原子更新，浏览器看不到中间态
+                    // 恢复折叠状态
+                    serverEl.querySelectorAll('[onclick*="toggleGroup"]').forEach((h, i) => {
+                        const container = h.nextElementSibling;
+                        const foldIcon = h.querySelector('.fold-icon');
+                        if (!container || foldStates[i] === null || foldStates[i] === undefined) return;
+                        if (foldStates[i]) {
+                            container.classList.add('hidden');// 原来是折叠的，保持折叠
+                            if (foldIcon) foldIcon.classList.add('collapsed');
+                        } else {
+                            container.classList.remove('hidden');// 原来是展开的，保持展开
+                            if (foldIcon) foldIcon.classList.remove('collapsed');
+                        }
+                    });
+                    
+                    // 第二帧恢复节点内部滚动条
                     requestAnimationFrame(() => {
-                        serverEl.innerHTML = newServer.innerHTML;
-                        
-                        // 恢复折叠状态
-                        serverEl.querySelectorAll('[onclick*="toggleGroup"]').forEach((h, i) => {
-                            const container = h.nextElementSibling;
-                            const foldIcon = h.querySelector('.fold-icon');
-                            if (!container || foldStates[i] === null || foldStates[i] === undefined) return;
-                            if (foldStates[i]) {
-                                container.classList.add('hidden');// 原来是折叠的，保持折叠
-                                if (foldIcon) foldIcon.classList.add('collapsed');
-                            } else {
-                                container.classList.remove('hidden');// 原来是展开的，保持展开
-                                if (foldIcon) foldIcon.classList.remove('collapsed');
+                        serverEl.scrollTop = scrollStates[0];
+                        const newEls = serverEl.querySelectorAll('*');
+                        newEls.forEach((el, i) => {
+                            if (scrollStates[i + 1] !== undefined) {
+                                el.scrollTop = scrollStates[i + 1];
                             }
                         });
-                        
-                        // 第二帧恢复节点内部滚动条
-                        requestAnimationFrame(() => {
-                            serverEl.scrollTop = scrollStates[0];
-                            const newEls = serverEl.querySelectorAll('*');
-                            newEls.forEach((el, i) => {
-                                if (scrollStates[i + 1] !== undefined) {
-                                    el.scrollTop = scrollStates[i + 1];
-                                }
-                            });
-                            // 解除高度锁
-                            serverEl.style.minHeight = '';
-                            updateAllStats();
-                        });
+                        // 解除高度锁
+                        //serverEl.style.minHeight = '';
+                        updateAllStats();
                     });
-                    // 手动刷新才弹成功提示，自动静默不弹
-                    if (!silent) showToast('节点刷新成功', 'success');
-                }
-            } catch (err) {
-                console.error('刷新节点失败:', err);
-                // 手动刷新才弹错误提示，自动静默只打控制台不打扰
-                if (!silent) showToast('刷新失败，请检查连接', 'error');
-                serverEl.style.minHeight = '';
-            } finally {
-                if (!silent) {
-                    // 手动刷新才移除loading状态
-                    serverEl.classList.remove('loading');
-                    if (refreshBtn) refreshBtn.classList.remove('loading');
-                }
-            }
-        }
-
-
-        // === 新增：每3秒静默自动刷新所有节点 ===
-        // 调用方法 setInterval(autoRefreshAll, 3000); 间隔毫秒数：3000=3秒
-        async function autoRefreshAll() {
-            const allServers = document.querySelectorAll('.server-block');
-            // 逐个节点刷新，一个刷完再刷下一个，不并发卡页面
-            for (const serverEl of allServers) {
-                // 如果节点正在手动刷新（有loading类），跳过本次，不冲突
-                if (serverEl.classList.contains('loading')) continue;
-                try {
-                    await refreshSingleServer(serverEl, true); // true=静默模式，无任何UI提示
-                } catch (e) {
-                    console.warn('自动刷新节点失败:', serverEl.dataset.server, e);
-                }
-            }
-        }
-
-
-        // 分组折叠
-        function toggleGroup(headerBar) {
-            const container = headerBar.nextElementSibling;
-            const foldIcon = headerBar.querySelector('.fold-icon');
-            container.classList.toggle('hidden');//加 hidden 表示折叠
-            const collapsed = container.classList.contains('hidden');
-            foldIcon.classList.toggle('collapsed', collapsed);
-        }
-
-        // ========== Toast提示 ==========
-        function showToast(msg, type = 'success') {
-            const toast = document.getElementById('toast');
-            toast.textContent = msg;
-            toast.className = `toast show ${type}`;
-            setTimeout(() => toast.classList.remove('show'), 2000);
-        }
-
-        // ========== 全局AJAX拦截：所有操作都只刷新单节点，不整页刷新 ==========
-        document.addEventListener('click', async (e) => {
-            // 处理手动刷新按钮
-            const refreshBtn = e.target.closest('.btn-refresh-node');
-            if (refreshBtn && !refreshBtn.disabled && !refreshBtn.classList.contains('loading')) {
-                e.preventDefault();
-                const serverEl = refreshBtn.closest('.server-block');
-                await refreshSingleServer(serverEl);
-                return;
-            }
-
-            // 处理其他操作按钮（单进程/组/批量/重启Supervisor）
-            const btn = e.target.closest('a.btn');
-            if (!btn || btn.disabled || btn.classList.contains('loading')) return;
-            
-            e.preventDefault();
-            
-            const url = btn.getAttribute('href');
-            const serverEl = btn.closest('.server-block');
-            const isRestartSupervisor = btn.dataset.action === 'restart-supervisor';
-            
-            btn.classList.add('loading');
-            btn.disabled = true;
-
-            try {
-                const res = await fetch(url, {
-                    method: 'GET',
-                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
                 });
+                // 手动刷新才弹成功提示，自动静默不弹
+                if (!silent) showToast('节点刷新成功', 'success');
+            }
+        } catch (err) {
+            console.error('刷新节点失败:', err);
+            // 手动刷新才弹错误提示，自动静默只打控制台不打扰
+            if (!silent) showToast('刷新失败，请检查连接', 'error');
+            // 解除高度锁
+            //serverEl.style.minHeight = '';
+        } finally {
+            if (!silent) {
+                // 手动刷新才移除loading状态
+                serverEl.classList.remove('loading');
+                if (refreshBtn) refreshBtn.classList.remove('loading');
+            }
+        }
+    }
 
-                if (res.ok) {
-                    showToast('操作执行成功', 'success');
-                    // 重启Supervisor等3秒，其他操作等1000ms，只刷新当前节点
-                    const delay = isRestartSupervisor ? 3000 : 1000;
-                    setTimeout(() => refreshSingleServer(serverEl).then(() => {
-                        btn.classList.remove('loading');
-                        btn.disabled = false;
-                    }), delay);
-                } else {
-                    showToast('操作失败: ' + res.status, 'error');
+
+    // === 新增：每3秒静默自动刷新所有节点 ===
+    // 调用方法 setInterval(autoRefreshAll, 3000); 间隔毫秒数：3000=3秒
+    async function autoRefreshAll() {
+        const allServers = document.querySelectorAll('.server-block');
+        // 逐个节点刷新，一个刷完再刷下一个，不并发卡页面
+        for (const serverEl of allServers) {
+            // 如果节点正在手动刷新（有loading类），跳过本次，不冲突
+            if (serverEl.classList.contains('loading')) continue;
+            try {
+                await refreshSingleServer(serverEl, true); // true=静默模式，无任何UI提示
+            } catch (e) {
+                console.warn('自动刷新节点失败:', serverEl.dataset.server, e);
+            }
+        }
+    }
+
+
+    // 分组折叠
+    function toggleGroup(headerBar) {
+        const container = headerBar.nextElementSibling;
+        const foldIcon = headerBar.querySelector('.fold-icon');
+        container.classList.toggle('hidden');//加 hidden 表示折叠
+        const collapsed = container.classList.contains('hidden');
+        foldIcon.classList.toggle('collapsed', collapsed);
+    }
+
+    // ========== Toast提示 ==========
+    function showToast(msg, type = 'success') {
+        const toast = document.getElementById('toast');
+        toast.textContent = msg;
+        toast.className = `toast show ${type}`;
+        setTimeout(() => toast.classList.remove('show'), 2000);
+    }
+
+    // ========== 全局AJAX拦截：所有操作都只刷新单节点，不整页刷新 ==========
+    document.addEventListener('click', async (e) => {
+        // 处理手动刷新按钮
+        const refreshBtn = e.target.closest('.btn-refresh-node');
+        if (refreshBtn && !refreshBtn.disabled && !refreshBtn.classList.contains('loading')) {
+            e.preventDefault();
+            const serverEl = refreshBtn.closest('.server-block');
+            await refreshSingleServer(serverEl);
+            return;
+        }
+
+        // 处理其他操作按钮（单进程/组/批量/重启Supervisor）
+        const btn = e.target.closest('a.btn');
+        if (!btn || btn.disabled || btn.classList.contains('loading')) return;
+        
+        e.preventDefault();
+        
+        const url = btn.getAttribute('href');
+        const serverEl = btn.closest('.server-block');
+        const isRestartSupervisor = btn.dataset.action === 'restart-supervisor';
+        
+        btn.classList.add('loading');
+        btn.disabled = true;
+
+        try {
+            const res = await fetch(url, {
+                method: 'GET',
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+
+            if (res.ok) {
+                showToast('操作执行成功', 'success');
+                // 重启Supervisor等3秒，其他操作等1000ms，只刷新当前节点
+                const delay = isRestartSupervisor ? 3000 : 1000;
+                setTimeout(() => refreshSingleServer(serverEl).then(() => {
                     btn.classList.remove('loading');
                     btn.disabled = false;
-                }
-            } catch (err) {
-                showToast('网络错误，请检查连接', 'error');
+                }), delay);
+            } else {
+                showToast('操作失败: ' + res.status, 'error');
                 btn.classList.remove('loading');
                 btn.disabled = false;
             }
-        });
+        } catch (err) {
+            showToast('网络错误，请检查连接', 'error');
+            btn.classList.remove('loading');
+            btn.disabled = false;
+        }
+    });
 
-        // 页面加载完更新所有统计，首屏恢复过渡
-        document.addEventListener('DOMContentLoaded', () => {
-            updateAllStats();
-            
-            // ========== 新增：监听节点交互，用户正在操作/悬停/滚动时不自动刷新 ==========
-            document.querySelectorAll('.server-block').forEach(serverEl => {
-                const sn = serverEl.dataset.server;
-                // 鼠标悬停在该节点上 = 正在看，跳过自动刷新
-                serverEl.addEventListener('mouseenter', () => ACTIVE_NODES.add(sn));
-                serverEl.addEventListener('mouseleave', () => ACTIVE_NODES.delete(sn));
-                // 正在滚动该节点内部 = 正在操作，3秒后再刷
-                let scrollTimer;
-                serverEl.addEventListener('scroll', () => {
-                    ACTIVE_NODES.add(sn);
-                    clearTimeout(scrollTimer);
-                    scrollTimer = setTimeout(() => ACTIVE_NODES.delete(sn), 3000);
-                });
+
+    // 页面加载完更新所有统计，首屏恢复过渡
+    document.addEventListener('DOMContentLoaded', () => {
+        updateAllStats();
+        
+        // ========== 新增：监听节点交互，用户正在操作/悬停/滚动时不自动刷新 ==========
+        document.querySelectorAll('.server-block').forEach(serverEl => {
+            const sn = serverEl.dataset.server;
+            // 鼠标悬停在该节点上 = 正在看，跳过自动刷新
+            serverEl.addEventListener('mouseenter', () => ACTIVE_NODES.add(sn));
+            serverEl.addEventListener('mouseleave', () => ACTIVE_NODES.delete(sn));
+            // 正在滚动该节点内部 = 正在操作，1秒后再刷
+            let scrollTimer;
+            serverEl.addEventListener('scroll', () => {
+                ACTIVE_NODES.add(sn);
+                clearTimeout(scrollTimer);
+                scrollTimer = setTimeout(() => ACTIVE_NODES.delete(sn), 1000);
             });
-            
-            // 页面加载完1秒后第一次自动刷新（避免刚进页面就刷），之后每3秒一次
-            setTimeout(autoRefreshAll, 1000);
-            setInterval(autoRefreshAll, 3000);
         });
-    </script>
-
+        
+        // 页面加载完1秒后第一次自动刷新（避免刚进页面就刷），之后每10秒一次
+        //setTimeout(autoRefreshAll, 1000);
+        setInterval(autoRefreshAll, 10000);
+    });
+</script>
 </body>
 </html>
