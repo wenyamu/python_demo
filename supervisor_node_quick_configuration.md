@@ -106,6 +106,7 @@ TZ=Asia/Shanghai /usr/local/bin/supervisord -c /etc/supervisor/supervisord.conf
 ```
 
 ### 设置开机启动
+> 此文件是直接复制通过 apt 安装的 supervisor 的自启动配置文件，没有作任何修改
 ```
 cat > /etc/systemd/system/supervisord.service <<EOF
 [Unit]
