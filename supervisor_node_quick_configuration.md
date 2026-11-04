@@ -106,3 +106,70 @@ TZ=Asia/Shanghai /usr/local/bin/supervisord -c /etc/supervisor/supervisord.conf
 ```
 
 
+### 设置开机启动
+
+```
+cat > /etc/systemd/system/supervisord.service <<EOF
+[Unit]
+Description=Supervisor process control system for UNIX
+Documentation=http://supervisord.org
+After=network.target
+
+[Service]
+Type=forking
+ExecStart=/usr/local/bin/supervisord -c /etc/supervisor/supervisord.conf
+ExecStop=/usr/local/bin/supervisorctl $OPTIONS shutdown
+ExecReload=/usr/local/bin/supervisorctl $OPTIONS reload
+KillMode=process
+Restart=on-failure
+RestartSec=30s
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+### 常用命令
+```
+systemctl daemon-reload        # 重新加载服务文件
+systemctl enable supervisord   # 开启自启
+systemctl start supervisord    # 启动
+# 验证
+systemctl status supervisord   #查看
+supervisorctl status           # 能看到你所有程序的状态就说明成功了
+
+systemctl restart supervisord  #重启
+systemctl stop supervisord     #停止
+systemctl reload supervisord   #暂未研究 与 supervisorctl reload 是否效果一样
+
+systemctl is-enabled supervisord #检查开机自启是否成功，返回 enabled 则表示成功
+
+```
+
+### 操作演示
+```
+
+root@ufiw001-122:~# systemctl daemon-reload
+root@ufiw001-122:~# systemctl enable supervisord
+Created symlink /etc/systemd/system/multi-user.target.wants/supervisord.service → /etc/systemd/system/supervisord.service.
+root@ufiw001-122:~# systemctl start supervisord
+root@ufiw001-122:~# systemctl status supervisord
+● supervisord.service - Supervisor process control system for UNIX
+     Loaded: loaded (/etc/systemd/system/supervisord.service; enabled; vendor preset: enabled)
+     Active: active (running) since Wed 2026-11-04 12:42:18 CST; 2s ago
+       Docs: http://supervisord.org
+    Process: 1180 ExecStart=/usr/local/bin/supervisord -c /etc/supervisor/supervisord.conf (code=exited, status=0/SUCCESS)
+   Main PID: 1182 (supervisord)
+      Tasks: 5 (limit: 410)
+     Memory: 31.7M
+        CPU: 3.028s
+     CGroup: /system.slice/supervisord.service
+             ├─1182 /usr/bin/python3 /usr/local/bin/supervisord -c /etc/supervisor/supervisord.conf
+             ├─1183 python3 /etc/supervisor/listener.py
+             └─1184 python3 -c import time; f=open('/tmp/strftime.log','w'); [f.seek(0) or f.write(time.strftime('%Y-%m-%d %H:%M:%S\n')) or f.truncate() or f.flush() or time.sleep(1) for _ in iter(int,1)]
+root@ufiw001-122:~# supervisorctl status
+1-time_app                       RUNNING   pid 970, uptime 0:01:13
+2-state_broadcaster              RUNNING   pid 969, uptime 0:01:13
+root@ufiw001-122:~# systemctl is-enabled supervisord
+enabled
+```
