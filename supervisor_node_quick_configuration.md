@@ -65,7 +65,7 @@ EOF
 ```
 mkdir -p /etc/supervisor/my_config && \
 cat > /etc/supervisor/my_config/time_app.conf <<EOF
-[program:time_app]
+[program:1-time_app]
 ;标准推荐范围为 0-999 ‌默认值‌：‌999‌ ‌规则‌：‌数值越小，优先级越高，越先启动‌。
 ; priority=11
 ;创建该项目用户
@@ -74,8 +74,7 @@ user = root
 ;应用目录，hls_abr_gen.py 存放目录 /root/test
 directory = /root/test
 
-;ffmpeg程序命令
-;command = python3 hls_abr_gen.py -i rtmp://1.2.3.4:1935/show-flv/abc123456 -o /mnt/hls3 --run
+;程序命令
 command = python3 -c "import time; f=open('/tmp/strftime.log','w'); [f.seek(0) or f.write(time.strftime('%%Y-%%m-%%d %%H:%%M:%%S\n')) or f.truncate() or f.flush() or time.sleep(1) for _ in iter(int,1)]"
 
 autostart = true ;在supervisord启动的时候，false 表示不自动启动，true 表示随着启动
@@ -90,7 +89,7 @@ environment=TZ="Asia/Shanghai"  # 单独给进程设上海时区，只修改此�
 ;stdout_logfile = /tmp/time_app_out.log
 ;stderr_logfile = /tmp/time_app_err.log
 
-[eventlistener:state_broadcaster]
+[eventlistener:2-state_broadcaster]
 command=python3 /etc/supervisor/listener.py
 events=PROCESS_STATE
 buffer_size=10
