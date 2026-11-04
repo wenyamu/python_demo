@@ -148,12 +148,11 @@ systemctl is-enabled supervisord #检查开机自启是否成功，返回 enable
 
 ### 操作演示
 ```
-
-root@ufiw001-122:~# systemctl daemon-reload
-root@ufiw001-122:~# systemctl enable supervisord
+root@localhost:~# systemctl daemon-reload
+root@localhost:~# systemctl enable supervisord
 Created symlink /etc/systemd/system/multi-user.target.wants/supervisord.service → /etc/systemd/system/supervisord.service.
-root@ufiw001-122:~# systemctl start supervisord
-root@ufiw001-122:~# systemctl status supervisord
+root@localhost:~# systemctl start supervisord
+root@localhost:~# systemctl status supervisord
 ● supervisord.service - Supervisor process control system for UNIX
      Loaded: loaded (/etc/systemd/system/supervisord.service; enabled; vendor preset: enabled)
      Active: active (running) since Wed 2026-11-04 12:42:18 CST; 2s ago
@@ -167,9 +166,9 @@ root@ufiw001-122:~# systemctl status supervisord
              ├─1182 /usr/bin/python3 /usr/local/bin/supervisord -c /etc/supervisor/supervisord.conf
              ├─1183 python3 /etc/supervisor/listener.py
              └─1184 python3 -c import time; f=open('/tmp/strftime.log','w'); [f.seek(0) or f.write(time.strftime('%Y-%m-%d %H:%M:%S\n')) or f.truncate() or f.flush() or time.sleep(1) for _ in iter(int,1)]
-root@ufiw001-122:~# supervisorctl status
+root@localhost:~# supervisorctl status
 1-time_app                       RUNNING   pid 970, uptime 0:01:13
 2-state_broadcaster              RUNNING   pid 969, uptime 0:01:13
-root@ufiw001-122:~# systemctl is-enabled supervisord
+root@localhost:~# systemctl is-enabled supervisord
 enabled
 ```
