@@ -95,7 +95,6 @@
   .stat-value.orange { color: #f59e0b; }
   .stat-value.gray { color: var(--text-secondary); }
 
-
   /* ========== 6. 服务器卡片 ========== */
   .server-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 20px; }
   .server-card {
@@ -124,17 +123,22 @@
     border-bottom: 1px solid var(--border);
     
   }
+  
   .server-actions {
     margin-left: auto;
   }
+  .server-actions button{
+    font-size: 14px;
+  }
+  
   .server-title { display: flex; align-items: center; gap: 8px; }
-  .server-title h3 { font-size: 18px; font-weight: 600; }
+  .server-title h3 { font-size: 16px; font-weight: 600; }
   .server-ip { font-size: 14px; color: var(--text-secondary); font-weight: normal; margin-left: 4px; }
   .status-dot { width: 10px; height: 10px; border-radius: 50%; }
   .connected { background: #22c55e; box-shadow: 0 0 8px #22c55e66; }
   .disconnected { background: #ef4444; }
   
-  /* 新增：独立的统计条，放头部下方、进程列表上方 */
+  /* 单节点的统计条，放头部下方、进程列表上方 */
   .server-stats-bar {
       display: flex;
       gap: 6px;
@@ -144,6 +148,7 @@
       font-size: 16px;
       color: var(--text-secondary);
       flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
   }
   .server-stats-bar span { font-weight: 600; }
   
@@ -172,6 +177,12 @@
       order: 1;/* 排列1 */
   }
   
+  /* 连接失败提示 */
+  .error-tip {
+      padding: 20px; color: #ef4444; text-align: center;
+      font-size: 15px;
+      background: var(--fatal-bg);
+  }
   /* 列表默认排序 */
   .proc-list {
       max-height: 500px; 
@@ -275,7 +286,6 @@
   .btn-refresh-node:disabled svg { animation: spin 1s linear infinite; }
   @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
   
-  
   /* supervisor 重启按钮 */
   .btn-supervisor-restart {
     background: #ef444422; color: #ef4444;
@@ -287,12 +297,7 @@
   .btn-supervisor-restart:hover:not(:disabled) { background: #ef4444; color: white; }
   .btn-supervisor-restart:disabled { opacity: 0.5; cursor: not-allowed; }
 
-  /* ========== 11. 减少动效适配 ========== */
-  @media (prefers-reduced-motion: reduce) {
-    * { transition: none !important; animation-duration: 0.01ms !important; }
-  }
-  
-  /* ========== 排序按钮加小问号?提示 ========== */
+  /* ========== 11. 排序按钮加小问号?提示 ========== */
   /* 问号小圆圈 */
   .help-icon {
       display: none;
@@ -347,6 +352,73 @@
   .help-icon:hover::before {
       opacity: 1;
       visibility: visible;
+  }
+  
+  /* ========== 12. 倒计时设置 ========== */
+  /* 倒计时样式 */
+  .refresh-countdown {
+      position: relative;
+      width: 28px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      opacity: 0.8;
+      vertical-align: middle;
+      --duration: 5s;/* 默认5秒，使用 style="--duration: 10s 覆盖默认设置 */
+  }
+  .refresh-countdown-svg {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      transform: rotate(-90deg);
+  }
+  .refresh-ring-bg {
+      fill: none;
+      stroke: rgba(0,0,0,0.1);
+      stroke-width: 3;
+  }
+  .refresh-ring-progress {
+      fill: none;
+      stroke: #3b82f6;
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-dasharray: 88;
+      stroke-dashoffset: 0;
+      /* ★ 核心：时长用CSS变量，改 --duration 就改了动画时长，infinite自动无限循环 */
+      animation: ringCountdown var(--duration) linear infinite;
+  }
+  
+  [data-theme="dark"] .refresh-ring-bg { stroke: rgba(255,255,255,0.15); }
+  
+  @keyframes ringCountdown {
+      from { stroke-dashoffset: 0; }
+      to { stroke-dashoffset: 88; }
+  }
+  
+  /* ========== 13. 响应式 ========== */
+  @media (max-width: 1300px) {
+      .server-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 768px) {
+      .server-grid { grid-template-columns: 1fr; }
+      body { padding: 12px; }
+      .server-stats-bar { flex-wrap: wrap; gap: 4px; font-size: 14px;}/**/
+      .server-stats-bar span { font-weight: 400; }
+      
+      .server-actions {
+        margin-left: auto;
+      }
+      .server-actions button{
+        font-size: 12px;
+      }
+      .server-title h3 { font-size: 14px; font-weight: 400; }
+  }
+  
+  /* ========== 减少动效适配 ========== */
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation-duration: 0.01ms !important; }
   }
 
 </style>
@@ -436,6 +508,7 @@
             <div class="server-title">
                 <span class="status-dot disconnected" id="dot-${server.ip}"></span>
                 <h3>${server.name}<span class="server-ip">${server.ip}</span></h3>
+                <div id="refresh-${server.ip}"></div>
             </div>
             <div class="server-actions">
                 <button class="btn btn-supervisor-restart" id="btn-restart-sv-${server.ip}" onclick="restartSupervisor('${server.ip}')">⚠︎ 重启 Supervisor</button>
@@ -446,7 +519,7 @@
           
             进程<span class="count-total" id="total-${server.ip}">0</span>
             运行<span class="count-running" id="run-${server.ip}">0</span>
-            停止<span class="count-stopped" id="stop-${server.ip}">0</span>
+            终止<span class="count-stopped" id="stop-${server.ip}">0</span>
             异常<span class="count-error" id="err-${server.ip}">0</span>
             崩溃<span class="count-flap" id="flap-${server.ip}">0</span>
           
@@ -459,7 +532,9 @@
               </button>
           </div>
         </div>
-        <div class="proc-list" id="procs-${server.ip}"></div>
+        <div class="proc-list" id="procs-${server.ip}">
+          <p class="error-tip">⚠ 服务器连接失败</p>
+        </div>
         `;
       dashboard.appendChild(card);
       connectToServer(server);
@@ -494,7 +569,8 @@
 
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
-
+      
+      // 定时节点全量更新时返回的数据
       if (data.type === 'full_sync') {
         const container = document.getElementById('procs-' + server.ip);
         container.innerHTML = '';
@@ -507,7 +583,8 @@
         updateGlobalStats();
         return;
       }
-
+      
+      // 进程状态改变时返回的数据
       if (data.type === 'state_change') {
         const procName = data.process;
         const statename = data.event.replace('PROCESS_STATE_', '');//监听状态，不是进程的状态信息
@@ -517,8 +594,8 @@
           full_name: procName,
           name: data.raw_process || procName.split(':').pop(),
           group: data.group || '',
-          from_state: data.from_state,//
-          expected: data.expected,//
+          //from_state: data.from_state,//
+          //expected: data.expected,//
           statename: statename,
           pid: data.pid || existing.pid || 0,
           flapping: !!data.flapping,
@@ -533,7 +610,8 @@
         updateGlobalStats();
         return;
       }
-
+      
+      // 操作单进程指令返回的执行结果数据
       if (data.type === 'command_result') {
         const cb = pendingRequests[data.req_id];
         if (cb) {
@@ -810,7 +888,18 @@
         <button class="btn btn-restart" ${disableRestart ? 'disabled' : ''} onclick="doAction('${serverIp}', '${proc.full_name}', 'restart', this)">↻ 重启</button>
         
       </div>
-      `;
+    `;
+    
+    const refreshEl = document.getElementById(`refresh-${serverIp}`);
+    refreshEl.innerHTML = `
+      <div class="refresh-countdown" style="--duration: ${proc.sync_interval}s;">
+          <svg class="refresh-countdown-svg" viewBox="0 0 36 36">
+              <circle class="refresh-ring-bg" cx="18" cy="18" r="14"/>
+              <circle class="refresh-ring-progress" cx="18" cy="18" r="14"/>
+          </svg>
+      </div>
+    `;
+      
   }
 
   function showProcError(serverIp, procName, errMsg) {
@@ -1021,6 +1110,7 @@
       localStorage.setItem('sortEnabled', sortEnabled);
       updateSortBtn();
   });
+
 
 </script>
 </body>
