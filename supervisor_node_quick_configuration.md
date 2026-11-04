@@ -105,9 +105,7 @@ EOF
 TZ=Asia/Shanghai /usr/local/bin/supervisord -c /etc/supervisor/supervisord.conf
 ```
 
-
 ### 设置开机启动
-
 ```
 cat > /etc/systemd/system/supervisord.service <<EOF
 [Unit]
@@ -137,13 +135,11 @@ systemctl start supervisord    # 启动
 # 验证
 systemctl status supervisord   #查看
 supervisorctl status           # 能看到你所有程序的状态就说明成功了
+systemctl is-enabled supervisord #检查开机自启是否成功，返回 enabled 则表示成功
 
 systemctl restart supervisord  #重启
 systemctl stop supervisord     #停止
 systemctl reload supervisord   #暂未研究 与 supervisorctl reload 是否效果一样
-
-systemctl is-enabled supervisord #检查开机自启是否成功，返回 enabled 则表示成功
-
 ```
 
 ### 操作演示
