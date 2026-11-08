@@ -133,13 +133,13 @@ EOF
 ```
 systemctl daemon-reload        # 重新加载服务文件 /etc/systemd/system/supervisord.service
 systemctl enable supervisord   # 设置 supervisord 为开机自启
-systemctl start supervisord    # 启动 supervisord
 
 # 验证
+systemctl is-enabled supervisord # 检查开机自启是否设置成功，返回 enabled 则表示成功
 systemctl status supervisord     # 查看 supervisord 运行状态
 supervisorctl status             # 查看 supervisord 所有进程状态，能看到就说明成功了
-systemctl is-enabled supervisord # 检查开机自启是否设置成功，返回 enabled 则表示成功
 
+systemctl start supervisord    # 启动 supervisord
 systemctl restart supervisord  #重启
 systemctl stop supervisord     #停止
 systemctl reload supervisord   #暂未研究 与 supervisorctl reload 是否效果一样
