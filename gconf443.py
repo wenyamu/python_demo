@@ -43,8 +43,9 @@ raw_env=["ljs1=111","ljs2=222"]
 keyfile = '/ssl/privkey.pem'
 certfile = '/ssl/fullchain.pem'
 
-loglevel = 'info' #日志级别，这个日志级别指的是错误日志的级别，而访问日志的级别无法设置
-access_log_format = '%(t)s %(p)s %(h)s "%(r)s" %(s)s %(L)s %(b)s %(f)s" "%(a)s"'#设置gunicorn访问日志格式，错误日志无法设置
+loglevel = 'error' #日志级别，这个日志级别指的是错误日志的级别，而访问日志的级别无法设置
+access_log_format = '%(t)s %(p)s %(h)s "%(r)s" %(s)s %(L)s %(b)s %(f)s "%(a)s"'#设置gunicorn访问日志格式，错误日志无法设置
+#[02/Nov/2026:09:16:02 +0800] <167789> 192.168.1.4 "GET /monitor.html HTTP/1.1" 304 0.042545 0 - "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36"
 '''
 其每个选项的含义如下：
 h  remote address
