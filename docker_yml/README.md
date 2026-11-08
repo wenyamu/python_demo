@@ -40,8 +40,8 @@ cat > /etc/supervisor/my_config/time_app.conf <<EOF
 ;创建该项目用户
 user = root
 
-;应用目录，存放目录 /python
-directory = /python
+;应用目录，存放目录 /etc/supervisor
+directory = /etc/supervisor
 
 ;程序命令
 command = python3 -c "import time; f=open('/tmp/strftime.log','w'); [f.seek(0) or f.write(time.strftime('%%Y-%%m-%%d %%H:%%M:%%S\n')) or f.truncate() or f.flush() or time.sleep(1) for _ in iter(int,1)]"
@@ -59,7 +59,7 @@ environment=TZ="Asia/Shanghai"  # 单独给进程设上海时区，只修改此�
 ;stderr_logfile = /tmp/time_app_err.log
 
 [eventlistener:2-state_broadcaster]
-command=python3 /python/listener.py
+command=python3 /etc/supervisor/listener.py
 events=PROCESS_STATE
 buffer_size=10
 ; 监听器挂掉后自动重启
