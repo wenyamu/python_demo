@@ -21,6 +21,7 @@ https://github.com/ochinchina/supervisord
 > 本项目的配置文件，都是基于 /python 目录创建的
 ```
 git clone https://github.com/wenyamu/python_demo.git /python
+cp -r /python/my_config /etc/supervisor
 ```
 
 ### 安装依赖项及软件
