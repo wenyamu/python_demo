@@ -3,7 +3,7 @@
 #### websockets 版 http://192.168.1.121
 > python3 -m pip install websockets
 > 
-> 需要配置 listener.py 事件监听器，和 html/moniter.html
+> 需要配置 listener.py 事件监听器，和 html/monitor.html
 >
 > 优点，可以实时反馈进程事件的状态变化
 
