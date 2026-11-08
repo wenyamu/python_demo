@@ -1,9 +1,8 @@
-
 ## 题外话
 > Python 脚本 supervisord 是一个被许多人用来管理进程的强大工具。该工具要求目标系统必须安装庞大的 Python 环境。例如在Docker环境中，Python对我们来说太大了。
 > 
 > 以下项目是用 GO 语言写的一个 supervisord 非常适合未安装Python的环境。
-
+> 
 > 它支持 depends_on 配置项，监督命令启动依赖。如果程序A依赖于程序B、C，则程序B、C将在程序A之前启动。
 ```
 https://github.com/ochinchina/supervisord
@@ -111,19 +110,19 @@ TZ=Asia/Shanghai /usr/local/bin/supervisord -c /etc/supervisor/supervisord.conf
 # 以下是安装了 supervisor 的本机和远程服务器的ip、登陆端口、用户名、密码信息
 serverDict = {
     "pyweb1":{
-        "host":"192.168.1.100",
+        "ip":"192.168.1.100",
         "port":"8000",
         "user":"admin",
         "passwd":"admin",
     },
     "pyweb2":{
-        "host":"192.168.1.101",
+        "ip":"192.168.1.101",
         "port":"8001",
         "user":"admin",
         "passwd":"admin",
     },
     "pyweb3":{
-        "host":"192.168.1.102",
+        "ip":"192.168.1.102",
         "port":"8002",
         "user":"admin",
         "passwd":"admin",
@@ -140,11 +139,7 @@ gunicorn -c /python/supervisor_monit/gconf_monit.py monit:app --preload
 ```
 
 #### 方法二：作为 supervisor 子程序运行
-> 把配置文件 `/python/supervisor_monit/flask_monit.conf` 加入到主配置文件 `/python/supervisor_flaskapp.conf` 中, 如下：
-```
-[include]
-files = /etc/supervisor/supervisord.conf /python/supervisor_conf/*.conf /python/supervisor_monit/*.conf
-```
+> 本项目已经使用此方法
 
 ### 各文件的功能说明
 
@@ -178,7 +173,7 @@ bind = '0.0.0.0:80'
 ...
 ...
 ```
-supervisor_conf/flask80.conf
+my_config/flask.conf
 > 作为 supervisor 管理的子进程的配置文件，对 gunicorn 进程的一些管理。gunicorn 就是用来启动 flask web 程序的，示例如下。
 ```bash
 [program:flask_app80]
@@ -202,14 +197,11 @@ programs=program1,program2,program3
 ...
 ...
 ```
-supervisor_flaskapp.conf
+/etc/supervisor/supervisord.conf
 > 作为启动 supervisor 时的主配置文件，主配置文件中会引入 flask80.conf 子配置文件。
 ```bash
 ...
 ...
-[include]
-files = /etc/supervisor/supervisord.conf /python/supervisor_conf/*.conf /python/supervisor_monit/*.conf
-
 #web管理界面
 [inet_http_server]
 port = 0.0.0.0:8000
