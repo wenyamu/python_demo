@@ -10,8 +10,7 @@ services:
       - "9001:9001" #supervisor 监控端口
     # 目录挂载 【宿主机目录:容器目录】
     volumes:
-      - /root/python:/python
-
+      - /root/python:/etc/supervisor
     # 容器名称
     container_name: pythontest
     restart: always
