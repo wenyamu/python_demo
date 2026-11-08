@@ -52,7 +52,7 @@ def static_files(filename):
 
 @app.route('/')
 def index_a():
-    return send_file('/python/html/index.html')
+    return send_file('/python/html/monitor.html')
 
 @app.route("/temp")
 def index_b():
