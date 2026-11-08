@@ -75,7 +75,7 @@ user = root
 directory = /root/test
 
 ;程序命令
-command = python3 -c "import time; f=open('/tmp/strftime.log','w'); [f.seek(0) or f.write(time.strftime('%%Y-%%m-%%d %%H:%%M:%%S\n')) or f.truncate() or f.flush() or time.sleep(1) for _ in iter(int,1)]"
+command = tail -f /dev/null
 
 autostart = true ;在supervisord启动的时候，false 表示不自动启动，true 表示随着启动
 autorestart = true ;程序异常退出后，false 表示不自动重启，true 表示自动重启
