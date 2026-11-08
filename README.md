@@ -305,8 +305,7 @@ dependent_startup_wait_for
 # 事件监听器, 用于启动依赖
 [eventlistener:dependent_monitor]
 #以模块的方式运行，指定配置文件
-command=python3 -m supervisord_dependent_startup -c /python/supervisor_flaskapp.conf
-stderr_logfile=/tmp/%(program_name)s-err.log
+command=python3 -m supervisord_dependent_startup -c /etc/supervisor/supervisord.conf
 events=PROCESS_STATE
 autostart=true
 ; The following settings are necessary to ensure the supervisord_dependent_startup
