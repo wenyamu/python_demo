@@ -176,14 +176,34 @@ bind = '0.0.0.0:80'
 my_config/flask.conf
 > 作为 supervisor 管理的子进程的配置文件，对 gunicorn 进程的一些管理。gunicorn 就是用来启动 flask web 程序的，示例如下。
 ```bash
+#定义应用名称 flask_app80（一个配置文件中可以配置多个程序）
 [program:flask_app80]
-...
-...
+
+#标准推荐范围为 0-999 ‌默认值‌：‌999‌ ‌规则‌：‌数值越小，优先级越高，越先启动‌。
+; priority=10
+
+#创建该项目用户
+user = root
+
+#应用目录，如果不指定程序文件的路径，则从此目录中查找
+directory = /python
+
+#程序命令行
 #flasktest就是代表flasktest.py，这里不写后缀。app是flasktest.py文件中设置的flask入口名
 command = /usr/local/bin/gunicorn -c /python/gconf80.py flasktest:app
-autostart = true #在supervisord启动的时候也自动启动
-...
-...
+
+autostart = true   #在supervisord启动的时候，false 表示不自动启动，true 表示随着启动
+autorestart = true #程序异常退出后，false 表示不自动重启，true 表示自动重启
+startsecs = 3      #稳定运行N秒后，从“正在启动”转成“正在运行”状态，值为0表示无需保持运行特定时长。
+startretries = 3   #进程启动失败后，最大尝试的次数。当超过最大次数，supervisor将把此进程的状态置为FATAL
+stopasgroup = true #确保关闭supervisord时停止所有相关子进程
+killasgroup = true #确保关闭supervisord时终止所有相关子进程
+environment=TZ="Asia/Shanghai" #设置进程的环境变量，这里是指 gunicorn 的环境
+
+#日志目录必须事先存在，不然会出错
+stdout_logfile = /python/logs/flask_app80-out.log
+stderr_logfile = /python/logs/flask_app80-err.log
+
 [program:program1]
 ...
 ...
