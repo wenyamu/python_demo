@@ -14,8 +14,6 @@ services:
 
     # 容器名称
     container_name: pythontest
-    #environment:
-    #  - "SERSYNC=true"
     restart: always
     # 相当于 docker run -i
     stdin_open: true
