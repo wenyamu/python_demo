@@ -1,6 +1,7 @@
 ### supervisor 监控有两种
 
 #### websockets 版 http://192.168.1.121
+> python3 -m pip install websockets
 > 需要配置 listener.py 事件监听器
 > 
 
