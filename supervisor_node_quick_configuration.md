@@ -71,7 +71,7 @@ cat > /etc/supervisor/my_config/time_app.conf <<EOF
 ;创建该项目用户
 user = root
 
-;应用目录，hls_abr_gen.py 存放目录 /root/test
+;应用目录，文件的默认存放目录 /root/test
 directory = /root/test
 
 ;程序命令
