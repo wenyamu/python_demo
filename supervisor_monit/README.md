@@ -3,12 +3,12 @@
 #### websockets 版 http://192.168.1.121
 > python3 -m pip install websockets
 > 
-> 需要配置 listener.py 事件监听器
+> 需要配置 listener.py 事件监听器，和 html/moniter.html
 >
 > 优点，可以实时反馈进程事件的状态变化
 
 #### rpc 版 http://192.168.1.121:5000/
-> 需要配置 monit.py web启动文件
+> 需要配置 monit.py web启动文件， 和 模板文件 supervisor_monit/templates/monit.html
 >
 > 可以管理本机和远程服务器的 supervisor 和 程序
 >
