@@ -66,15 +66,9 @@ buffer_size=10
 autorestart=true
 startsecs=1
 EOF
+```
 
-
-
-
-
-
-
-
-
-
-
-``
+### 运行 supervisor
+```
+TZ=Asia/Shanghai /usr/local/bin/supervisord -c /etc/supervisor/supervisord.conf
+```
