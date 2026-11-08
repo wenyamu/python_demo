@@ -4,12 +4,15 @@
 > python3 -m pip install websockets
 > 
 > 需要配置 listener.py 事件监听器
-> 
+>
+> 优点，可以实时反馈进程事件的状态变化
 
 #### rpc 版 http://192.168.1.121:5000/
 > 需要配置 monit.py web启动文件
 >
 > 可以管理本机和远程服务器的 supervisor 和 程序
+>
+> 缺点，不能实时的反馈进程事件状态变化
 ```
 # 先修改 /python/supervisor_monit/monit.py 中的字典形式的参数
 # 以下是安装了 supervisor 的本机和远程服务器的ip、登陆端口、用户名、密码信息
