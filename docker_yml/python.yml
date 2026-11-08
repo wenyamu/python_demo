@@ -6,10 +6,8 @@ services:
     hostname: pythonHost
     # 映射端口 【宿主机端口:容器端口】
     ports:
-      - "5000:5000"
-      - "8000:8000"
-      - "80:80"
-      - "443:443"
+      - "9527:9527" #ws端口
+      - "9001:9001" #supervisor 监控端口
     # 目录挂载 【宿主机目录:容器目录】
     volumes:
       - /root/python:/python
