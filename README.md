@@ -54,27 +54,55 @@ cp /etc/supervisor/supervisord.conf /etc/supervisor/supervisord.conf.bak && \
 grep -Ev '^\s*[;#]' /etc/supervisor/supervisord.conf.bak > /etc/supervisor/supervisord.conf
 ```
 
-### 启动 supervisor
-> supervisor 的默认监控 http://0.0.0.0:8000
->
-> 只能管理本机的程序
-
-#### 修改配置文件中的本地服务器ip、登陆端口、用户名、密码信息，用于supervisor 的默认监控的登陆
-> /python/supervisor_flaskapp.conf
+### 配置主配置
 ```
-#web管理界面
+cat >> /etc/supervisor/supervisord.conf <<EOF
+# web管理界面
 [inet_http_server]
 port = 0.0.0.0:8000
 username = admin
 password = admin
+
+# 事件监听器, 用于启动依赖
+# /usr/local/lib/python3.9/dist-packages/supervisord_dependent_startup/supervisord_dependent_startup.py
+[eventlistener:z-dependent_monitor]
+; priority=1
+command=python3 -m supervisord_dependent_startup -c /etc/supervisor/supervisord.conf
+events=PROCESS_STATE
+autostart=true
+; The following settings are necessary to ensure the supervisord_dependent_startup
+; process exits with EXITED when successfull, and FATAL when an error occured
+autorestart=unexpected
+startretries=0
+exitcodes=0,3
+environment=TZ="Asia/Shanghai"
+
+;监听器, 用于监控
+[eventlistener:z-state_broadcaster]
+command=python3 /python/supervisor_monit/listener.py
+events=PROCESS_STATE
+autostart=true
+buffer_size=10
+; 监听器挂掉后自动重启
+autorestart=true
+startsecs=1
+environment=TZ="Asia/Shanghai"
+
+# 引入需要管理的程序配置文件
+[include]
+files = /etc/supervisor/my_config/*.conf
+EOF
 ```
-#### 运行
+
+### 启动 supervisor
 > 以北京时间为准
 ```
-TZ=Asia/Shanghai /usr/local/bin/supervisord -c /python/supervisor_flaskapp.conf
+TZ=Asia/Shanghai /usr/local/bin/supervisord -c /etc/supervisor/supervisord.conf
 ```
 
 ### 启动自定义监控程序
+> supervisor 的默认监控 http://0.0.0.0:8000, 只能管理本机的程序
+> 
 > 自定义的监控 http://0.0.0.0:5000
 >
 > 可以管理本机和远程服务器的 supervisor 和 程序
