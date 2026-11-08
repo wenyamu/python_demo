@@ -39,8 +39,9 @@ os.getenv('prompt1')
 '''
 raw_env=["prompt1=测试...","prompt2=hahaha"]
 
-loglevel = 'info' #日志级别，这个日志级别指的是错误日志的级别，而访问日志的级别无法设置
-access_log_format = '%(t)s %(p)s %(h)s "%(r)s" %(s)s %(L)s %(b)s %(f)s" "%(a)s"'#设置gunicorn访问日志格式，错误日志无法设置
+loglevel = 'error' #日志级别，这个日志级别指的是错误日志的级别，而访问日志的级别无法设置
+access_log_format = '%(t)s %(p)s %(h)s "%(r)s" %(s)s %(L)s %(b)s %(f)s "%(a)s"'#设置gunicorn访问日志格式，错误日志无法设置
+#[01/Nov/2026:23:43:43 +0000] <162616> 192.168.1.4 "GET / HTTP/1.1" 200 0.733492 62678 http://192.168.1.121:5000/ "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36"
 '''
 其每个选项的含义如下：
 h  remote address

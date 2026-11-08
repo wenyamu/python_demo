@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Supervisor Event Listener + WebSocket 广播 (含指令控制版 + 崩溃循环检测 + 手动确认)
+Supervisor Event Listener + WebSocket 广播 (含指令控制版 + 抖动循环检测 + 手动确认)
 - 监听所有进程状态变化，实时推送给前端网页
-- 响应前端发来的启停/重启/日志拉取/确认崩溃指令
-- 每 10 秒全量校准一次，解决重启瞬间丢事件、状态卡 STOPPING 的问题
-- 崩溃循环检测：5 分钟内重启 ≥ 3 次标记为异常，稳定 5 分钟后自动解除
+- 响应前端发来的启停/重启/日志拉取/确认抖动指令
+- 每 10 秒节点全局校准一次，解决重启瞬间丢事件、状态卡 STOPPING 的问题
+- 抖动循环检测：2 分钟内抖动 ≥ 3 次标记为抖动，稳定 2 分钟后自动解除
 - 管理员可手动点「确认已处理」立即清除警告
 
 适配 websockets >= 12（新版 handler 只接收一个 websocket 参数）
@@ -30,18 +30,31 @@ logger = logging.getLogger("listener")
 
 # ---------- 全局配置 ----------
 WS_CLIENTS = set()
-WS_HOST = "0.0.0.0"
-WS_PORT = 8765
+WS_HOST    = "0.0.0.0"
+WS_PORT    = 8765
+
+HTTP_PORT = 8000
+USER      = "admin"
+PASSWD    = "admin"
 
 # ★ 你的 XML-RPC 地址（带用户名密码），按需修改
-SUPERVISOR_RPC_URL = "http://admin:admin@localhost:8000/RPC2"
+SUPERVISOR_RPC_URL = f"http://{USER}:{PASSWD}@localhost:{HTTP_PORT}/RPC2"
 
-# 崩溃循环检测阈值
-CRASH_WINDOW_SECONDS = 300 # 时间窗口，秒
-CRASH_THRESHOLD = 3        # 时间窗口内重启次数达到该值标记为崩溃
-CALIBRATION_INTERVAL = 30  #校准时间间隔，秒
+# 抖动循环检测阈值
+CRASH_WINDOW_SECONDS = 60 # 时间窗口，秒
+CRASH_THRESHOLD      = 3        # 时间窗口内抖动次数达到该值，进程状态标记为抖动
+CALIBRATION_INTERVAL = 10  #节点校准时间间隔，秒
+
+# 是否保持抖动标记（不自动清除标记，手动确认处理后再清除标记）
+KEEP_FLAP_MARK = False
+
+# 是否允许抖动进程自动停止
+AUTO_STOPPED = False
+
+###########################################
 
 MAIN_LOOP = None
+
 CRASH_STATE_LOCK = threading.Lock()
 
 # { full_name: [最近启动的时间戳列表] }
@@ -53,31 +66,42 @@ ACKNOWLEDGED_CRASHES = {}
 # 曾经成功进入过 RUNNING 的进程集合，用于区分「起不来」和「能起来但反复挂」
 EVER_RUNNING = set()
 
+# ★ 新增：已自动停止的进程集合，防止重复发停止指令
+# AUTO_STOPPED_PROCESSES = set()
+
 
 def detect_crash_loop(full_name):
     """
     滑动窗口检测：
     - 记录该进程每次进入 STARTING 的时间戳
-    - 清理超出窗口的旧记录
-    - 如果被管理员确认过，且确认后未出现新的崩溃，则返回 flapping=False
-    返回 (is_flapping, count, last_start_ts, acknowledged)
+    - 时间戳条数如果达到阈值 CRASH_THRESHOLD 并且抖动未被确认处理，is_flapping=True
+    - KEEP_FLAP_MARK=False 清理超出窗口时间 CRASH_WINDOW_SECONDS 的旧时间戳
+    - 如果被管理员确认过，且确认后未出现新的抖动，则返回 is_flapping=False
+    返回 (is_flapping, count, last_start, acknowledged)
     """
     now = time.time()
     with CRASH_STATE_LOCK:
         timestamps = RESTART_TIMESTAMPS[full_name]
-        # 清理窗口外的记录
-        cutoff = now - CRASH_WINDOW_SECONDS
-        while timestamps and timestamps[0] < cutoff:
-            timestamps.pop(0)
+        
+        #如果不保持抖动标记，则不断清除窗口时间以外的记录，这样抖动记数会一直减少
+        #达不到抖动阈值时，抖动标记就会清除
+        if not KEEP_FLAP_MARK:
+            
+            # 清理窗口外的记录
+            cutoff = now - CRASH_WINDOW_SECONDS
+            while timestamps and timestamps[0] < cutoff:
+                timestamps.pop(0)
+            
         count = len(timestamps)
         last_start = timestamps[-1] if timestamps else 0
-
+        
         # 检查是否被手动确认过
         ack_ts = ACKNOWLEDGED_CRASHES.get(full_name, 0)
         # 如果最后一次重启发生在确认之后，说明确认后又崩了，确认失效
         acknowledged = ack_ts > 0 and last_start <= ack_ts
-
+        
         is_flapping = count >= CRASH_THRESHOLD and not acknowledged
+        
         return is_flapping, count, last_start, acknowledged
 
 
@@ -85,25 +109,25 @@ def record_restart(full_name, from_state=None):
     """
     进程进入 STARTING 时调用，记录一次启动时间戳。
     
-    仅当满足「真·频繁崩溃」语义时才计数：
+    仅当满足「真·频繁抖动」语义时才计数：
     1. 该进程**曾经成功进入过 RUNNING**（即真正跑起来过）
-       —— 从未跑起来、反复 BACKOFF/FATAL 的进程不归崩溃，归入「异常进程」
+       —— 从未跑起来、反复 BACKOFF/FATAL 的进程不归抖动，归入「异常进程」
     2. 这次 STARTING 是**从 EXITED 自动拉起**（运行中异常退出，被 Supervisor 拉起来）
        —— 从 STOPPED 启动属于管理员手动操作，不计数
-       —— 从 BACKOFF 启动属于启动失败重试，进程根本没跑起来，不计崩溃（归异常进程）
-    返回是否真正计了一次崩溃。
+       —— 从 BACKOFF 启动属于启动失败重试，进程根本没跑起来，不计抖动（归异常进程）
+    返回是否真正计了一次抖动。
     """
     with CRASH_STATE_LOCK:
-        # 条件1：从未进入 RUNNING → 根本没跑起来过，属于启动失败（异常进程），不计崩溃
+        # 条件1：从未进入 RUNNING → 根本没跑起来过，属于启动失败（异常进程），不计抖动
         if full_name not in EVER_RUNNING:
             return False
-        # 条件2：从 STOPPED 启动 → 管理员手动 start/restart，不计崩溃
+        # 条件2：从 STOPPED 启动 → 管理员手动 start/restart，不计抖动
         if from_state == "STOPPED":
             return False
-        # 条件3：从 BACKOFF 启动 → 启动失败重试，进程没跑起来，属于异常进程，不计崩溃
+        # 条件3：从 BACKOFF 启动 → 启动失败重试，进程没跑起来，属于异常进程，不计抖动
         if from_state == "BACKOFF":
             return False
-        # 条件4：从 EXITED（运行中异常退出）→ 真·崩溃重启，计数
+        # 条件4：从 EXITED（运行中异常退出）→ 真·抖动重启，计数
         if from_state == "EXITED":
             RESTART_TIMESTAMPS[full_name].append(time.time())
             return True
@@ -112,11 +136,11 @@ def record_restart(full_name, from_state=None):
 
 
 def mark_running(full_name):
-    """进程成功进入 RUNNING 时调用：标记该进程「能跑起来」，并清理窗口外旧崩溃记录。"""
+    """进程成功进入 RUNNING 时调用：标记该进程「能跑起来」，并清理窗口外旧抖动记录。"""
     now = time.time()
     with CRASH_STATE_LOCK:
         EVER_RUNNING.add(full_name)
-        # 清理 CRASH_WINDOW_SECONDS 秒以前的旧崩溃记录，稳定运行后标记会自动消失
+        # 清理 CRASH_WINDOW_SECONDS 秒以前的旧抖动记录，稳定运行后标记会自动消失
         cutoff = now - CRASH_WINDOW_SECONDS
         timestamps = RESTART_TIMESTAMPS[full_name]
         while timestamps and timestamps[0] < cutoff:
@@ -124,11 +148,14 @@ def mark_running(full_name):
 
 
 def acknowledge_crash(full_name):
-    """管理员手动确认已处理该崩溃，立即清除警告"""
+    """管理员手动确认已处理该抖动，立即清除警告"""
     with CRASH_STATE_LOCK:
         ACKNOWLEDGED_CRASHES[full_name] = time.time()
-        # 同时清空该进程的重启记录，这样即使再次崩溃也会重新计数
+        # 同时清空该进程的重启记录，这样即使再次抖动也会重新计数
         RESTART_TIMESTAMPS[full_name].clear()
+        
+        # ★ 新增：确认时移除锁存标记和自动停止标记，下次抖动可以正常触发
+        # AUTO_STOPPED_PROCESSES.discard(full_name)
     return {"success": True, "message": "已确认处理"}
 
 
@@ -161,7 +188,7 @@ class SupervisorProxy:
             return func(*args, **kwargs)
 
     def get_all_processes(self):
-        """获取所有进程完整信息（含崩溃循环检测结果）"""
+        """获取所有进程完整信息（含抖动循环检测结果）"""
         try:
             # procs = self._retry_name("getAllProcessInfo")
             procs = self._retry(self.rpc.supervisor.getAllProcessInfo)
@@ -172,22 +199,23 @@ class SupervisorProxy:
                 # 这样即使 listener 自身重启，也能在下次全量校准时重建 EVER_RUNNING
                 if p["statename"] == "RUNNING":
                     mark_running(full_name)#标记进程进入 RUNNING 状态
-                is_flapping, crash_count, last_start, acknowledged = detect_crash_loop(full_name)
+                is_flapping, flap_count, last_start, acknowledged = detect_crash_loop(full_name)
                 result.append({
                     "name": p["name"],
                     "group": p["group"],
                     "full_name": full_name,
                     "start": p["start"],
                     "stop": p["stop"],
-                    "state": p["state"],
-                    "statename": p["statename"],
+                    "state": p["state"], #状态数字编号
+                    "statename": p["statename"], #状态名称
                     "pid": p["pid"],
                     "description": p.get("description", ""),
                     "exitstatus": p.get("exitstatus", 0),
                     "flapping": is_flapping,
-                    "crash_count": crash_count,
+                    "flap_count": flap_count,
                     "last_restart_ts": last_start,
                     "acknowledged": acknowledged,
+                    "sync_interval": CALIBRATION_INTERVAL, #此监听器的同步间隔，秒
                 })
             return result
         except Exception as e:
@@ -282,12 +310,12 @@ async def ws_handler(websocket):
                     "result": result,
                 }, ensure_ascii=False))
 
-            # ---------- 手动确认崩溃已处理 ----------
+            # ---------- 手动确认抖动已处理 ----------
             elif msg_type == "acknowledge_flap":
                 proc = msg.get("process")
                 req_id = msg.get("req_id")
                 if proc:
-                    logger.info(f"管理员确认已处理崩溃: {proc}")
+                    logger.info(f"管理员确认已处理抖动: {proc}")
                     result = await asyncio.to_thread(acknowledge_crash, proc)
                     # 先回复结果
                     await websocket.send(json.dumps({
@@ -406,7 +434,7 @@ def calibration_daemon():
         push_event({
             "type": "full_sync",
             "data": all_procs,
-            "ts": time.time(),
+            "ts": time.time(), #全量同步时间戳
         })
 
 
@@ -511,9 +539,9 @@ def main():
         #也继续支持对此组名进行操作，命令也会影响到此进程
         full_name = f"{group_name}:{proc_name}" if group_name and group_name != proc_name else proc_name
         
-        # 崩溃循环检测（精确版）：
+        # 抖动循环检测（精确版）：
         #   进入 RUNNING   → 标记该进程「能跑起来」，清理窗口外旧记录
-        #   进入 STARTING  → 满足以下两个条件才计一次崩溃：
+        #   进入 STARTING  → 满足以下两个条件才计一次抖动：
         #       1) 该进程曾成功进入过 RUNNING（根本没起来的 FATAL/BACKOFF 不算）
         #       2) 从 EXITED 启动（运行中异常退出，被 Supervisor 自动拉起）
         #       → 从 STOPPED 启动（管理员手动 start/restart）不计入
@@ -524,7 +552,21 @@ def main():
         elif eventname == "PROCESS_STATE_STARTING":
             record_restart(full_name, from_state=from_state)#记录进程 重启 计数
         
-        is_flapping, crash_count, last_start, acknowledged = detect_crash_loop(full_name)
+        is_flapping, flap_count, last_start, acknowledged = detect_crash_loop(full_name)
+        
+        '''
+        # 新增逻辑，发生抖动，并且此进程不在集合中，就停止此进程，由人工处理
+        # if AUTO_STOPPED and is_flapping and full_name not in AUTO_STOPPED_PROCESSES:
+        if AUTO_STOPPED and flap_count > CRASH_THRESHOLD+3 and full_name not in AUTO_STOPPED_PROCESSES:
+            sup.stop_process(full_name)
+            AUTO_STOPPED_PROCESSES.add(full_name)
+        '''
+        
+        # 不使用集合，而是判断进程当前状态，如果已经停止了，就不再重复停止
+        if AUTO_STOPPED and is_flapping and eventname not in ("PROCESS_STATE_STOPPED", "PROCESS_STATE_EXITED"):
+        # if AUTO_STOPPED and flap_count > CRASH_THRESHOLD+3 and eventname not in ("PROCESS_STATE_STOPPED", "PROCESS_STATE_EXITED"):
+            sup.stop_process(full_name)
+        
         
         event = {
             "type": "state_change",
@@ -535,16 +577,16 @@ def main():
             "from_state": body_data.get("from_state", ""),
             "pid": body_data.get("pid", ""),
             "expected": body_data.get("expected", ""),
-            "ts": time.time(),
+            "ts": time.time(), #事件时间戳
             "flapping": is_flapping,
-            "crash_count": crash_count,
+            "flap_count": flap_count,
             "last_restart_ts": last_start,
             "acknowledged": acknowledged,
         }
         
         if is_flapping and eventname == "PROCESS_STATE_RUNNING":
             logger.warning(
-                f"⚠️ 进程 {full_name} 频繁重启！{CRASH_WINDOW_SECONDS}秒内已重启 {crash_count} 次"
+                f"⚠️ 进程 {full_name} 频繁抖动！{CRASH_WINDOW_SECONDS}秒内已抖动 {flap_count} 次"
             )
         
         logger.info(f"事件: {eventname} | {full_name}{' [FLAPPING]' if is_flapping else ''}{' [ACK]' if acknowledged else ''}")

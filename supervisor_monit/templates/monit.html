@@ -134,7 +134,7 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
-        .server-header h3 .host {
+        .server-header h3 .ip {
             color: var(--text-secondary);
             font-weight: normal;
             font-family: Consolas, monospace;
@@ -187,8 +187,12 @@
             display: flex; flex-direction: column; /* 这两项是排列必要设置 */
         }
         .sort-enabled .process-item.RUNNING, .sort-enabled .process-item.running { order: 4;}
-        .sort-enabled .process-item.stopped, .sort-enabled .process-item.exited { order: 3;}
+        
+        .sort-enabled .process-item.STOPPED, .sort-enabled .process-item.EXITED, .sort-enabled .process-item.stopped, .sort-enabled .process-item.exited { order: 3;}
+        
         .sort-enabled .process-item.FATAL, .sort-enabled .process-item.BACKOFF, .sort-enabled .process-item.fatal, .sort-enabled .process-item.backoff { order: 2; }
+        
+        .sort-enabled .process-item.flapping { order: 1; }
         
         /* 列表默认排序 */
         .process-list {
@@ -223,7 +227,29 @@
             border-left-color: #ef4444;
             background: var(--fatal-bg);
         }
-
+        
+        /* Flapping 橙色呼吸动画（颜色自动适配主题） */
+        .process-item.flapping {
+          border: 2px solid #f59e0b;
+          border-left-width: 4px;
+          background: #f59e0b22;
+          animation: crash-pulse 1.4s ease-in-out infinite;
+        }
+        @keyframes crash-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, calc(0.25 * var(--halo-opacity))); }
+          50%      { box-shadow: 0 0 16px 5px rgba(245, 158, 11, calc(0.5 * var(--halo-opacity))); }
+        }
+        
+        .ack-btn-inline {
+          padding: 2px 8px; border: none; border-radius: 3px;
+          background: #22c55e; color: #fff;
+          font-size: 14px; cursor: pointer; font-weight: 600;
+          white-space: nowrap;
+          margin-right: 6px;
+        }
+        .ack-btn-inline:hover { background: #16a34a; }
+        
+        
         /* 进程第一行：名称+状态+按钮 */
         .process-top {
             display: flex; justify-content: space-between; align-items: center;
@@ -260,6 +286,7 @@
         @keyframes status-pulse {
             0%,100% { opacity: 1; }
             50% { opacity: 0.7; }
+            
         }
         .proc-pid {
             font-size: 13px; color: var(--text-secondary);
@@ -283,6 +310,12 @@
         /* 操作按钮 */
         .process-ops {
             display: flex; gap: 4px; flex-shrink: 0;
+        }
+        
+        a.disabled {
+            pointer-events: none;   /* 核心：鼠标点不了、hover 也不触发 */
+            opacity: 0.5;           /* 视觉上变灰、变淡，让人知道不可用 */
+            cursor: not-allowed;    /* 鼠标移上去显示"禁止"光标 */
         }
 
         /* ========== 10. 分组卡片 ========== */
@@ -321,7 +354,9 @@
             border: none;
             transition: all 0.15s;
             white-space: nowrap;
+            background: var(--bg-elevated);color: var(--text-primary);
         }
+        .btn:hover { background: var(--bg-hover); }
         .btn:active { transform: translateY(1px); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
         .btn.loading { opacity: 0.7; pointer-events: none; }
@@ -534,10 +569,14 @@
             <span class="stat-label">启动失败</span>
             <span class="stat-value red" id="stat-error-procs">0</span>
         </div>
-        
-        <button id="sortToggleBtn" class="btn btn-log">
+        <div class="stat-item">
+            <span class="stat-icon stat-value orange">⚡</span>
+            <span class="stat-label">抖动进程</span>
+            <span class="stat-value orange" id="stat-flapping-procs">0</span>
+        </div>
+        <button id="sortToggleBtn" class="btn">
             <span id="sortBtnLabel">⇅ 默认排序</span>
-            <span class="help-icon" data-tip="状态排序：崩溃、异常、停止的程序置顶。">?</span>
+            <span class="help-icon" data-tip="状态排序：抖动、异常、停止的程序置顶。">?</span>
         </button>
         
     </div>
@@ -547,12 +586,12 @@
         <div class="server-block" data-server="{{ sn }}">
             <div class="server-header">
                 <h3>
-                    {% set procs_check = funAllInfo(sn) %}
-                    <span class="server-status-dot {% if procs_check %}connected{% else %}error{% endif %}"></span>
-                    {{ sn }}
-                    <span class="host">{{ info.host }}</span>
+                    {% set processes = funAllInfo(sn) %}
+                    <span class="server-status-dot {% if processes %}connected{% else %}error{% endif %}"></span>
+                    {{ info.nodename }}
+                    <span class="ip">{{ info.ip }}:{{ info.port }}</span>
                     <!-- 自动刷新倒计时小圆环 -->
-                    <div id="refresh-{{ info.host }}">
+                    <div id="refresh-{{ info.ip }}">
                         <div class="refresh-countdown" style="">
                             <svg class="refresh-countdown-svg" viewBox="0 0 36 36">
                                 <circle class="refresh-ring-bg" cx="18" cy="18" r="14"/>
@@ -561,10 +600,9 @@
                         </div>
                     </div>
                 </h3>
-                <a href="{{ url_for('restartSupervisor', title=sn) }}" class="btn btn-restart-supervisor" data-action="restart-supervisor">⚠ 重启 Supervisor</a>
+                <a href="{{ url_for('restartSupervisor', node=sn) }}" class="btn btn-restart-supervisor" data-action="restart-supervisor">⚠ 重启 Supervisor</a>
             </div>
-
-            {% set processes = procs_check %}
+            
             {% if not processes %}
                 <p class="error-tip">⚠ 服务器连接失败</p>
             {% else %}
@@ -586,6 +624,10 @@
                         <span class="stat-label">异常</span>
                         <span class="stat-value red node-error">0</span>
                     </div>
+                    <div class="server-stat-item">
+                        <span class="stat-label">抖动</span>
+                        <span class="stat-value orange node-flapping">0</span>
+                    </div>
                     <button class="btn btn-refresh-node" data-action="refresh-node" title="刷新当前节点">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-bottom:2px;">
                             <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
@@ -593,44 +635,58 @@
                         刷新
                     </button>
                 </div>
-
+                
                 <div class="server-actions">
-                    <a href="{{ url_for('index_one', method='supervisor.stopAllProcesses', name='', title=sn) }}" class="btn btn-stop-all" data-action="stop-all">全部停止</a>
-                    <a href="{{ url_for('index_one', method='supervisor.startAllProcesses', name='', title=sn) }}" class="btn btn-start-all" data-action="start-all">全部启动</a>
-                    <a href="{{ url_for('index_restartAll', title=sn) }}" class="btn btn-restart-all" data-action="restart-all">全部重启</a>
+                    <a href="{{ url_for('index_one', method='supervisor.startAllProcesses', name='', node=sn) }}" class="btn btn-start-all" data-action="start-all">全部启动</a>
+                    <a href="{{ url_for('index_one', method='supervisor.stopAllProcesses', name='', node=sn) }}" class="btn btn-stop-all" data-action="stop-all">全部停止</a>
+                    <a href="{{ url_for('index_restartAll', node=sn) }}" class="btn btn-restart-all" data-action="restart-all">全部重启</a>
                     
                 </div>
                 
                 <!-- 未分组进程 -->
                 <ul class="process-list">
                 {% for proc in processes["ungrouped"] %}
-                    <li class="process-item {{ proc.statename }}" data-proc="{{ proc.name }}">
+                  <!-- {% if proc.is_flapping %}{% print( proc ) %}{% endif %} -->
+                    <li class="process-item {% if proc.is_flapping %}flapping{% else %}{{ proc.statename }}{% endif %}" data-proc="{{ proc.name }}" data-node="{{ sn }}"  data-statename="{{ proc.statename }}">
                         <div class="process-top">
                             <div class="process-info">
-                                <span class="proc-name" title="{{ proc.name }}">{{ proc.name }}</span>
+                                <span class="proc-name">{{ proc.name }}</span>
                                 <span class="proc-status status-{{ proc.statename | lower }}">{{ proc.statename }}</span>
                             </div>
                             
                         </div>
                         <div class="process-bottom">
-                            <span class="proc-desc {% if 'error' in proc.description.lower() or 'exit' in proc.description.lower() or 'fatal' in proc.description.lower() %}error{% endif %}" title="{{ proc.description }}">{{ proc.description | default('--', boolean=True) }}</span>
+                            
+                            {% if proc.is_flapping %}
+                              <span class="proc-desc" title="{{ proc.state_tip }}">{{ proc.state_tip }}</span>
+                              <button class="ack-btn-inline">✓ 确认已处理</button>
+                            {% else %}
+                              <span class="proc-desc">{{ proc.description | default('--', boolean=True) }}</span>
+                              
+                            {% endif %}
                             
                             <!-- 按钮 -->
                             <div class="process-ops">
-                              {# 运行状态：显示【停止 + 重启】，隐藏启动按钮 #}
-                              {% if proc.statename|upper == 'RUNNING' %}
-                                <a href="{{ url_for('index_one', method='supervisor.stopProcess', name=proc.name, title=sn) }}" class="btn btn-stop" data-action="stop">停止</a>
-                                <a href="{{ url_for('index_restartOne', name=proc.name, title=sn) }}" class="btn btn-restart" data-action="restart">重启</a>
-
-                              {# 停止/退出/崩溃状态：只显示【启动】按钮 #}
-                              {% elif proc.statename|upper in ['STOPPED', 'EXITED', 'FATAL', 'BACKOFF'] %}
-                                <a href="{{ url_for('index_one', method='supervisor.startProcess', name=proc.name, title=sn) }}" class="btn btn-start" data-action="start">启动</a>
-
+                              {% set st = proc.statename|upper %}
+                              
+                              {# 因为抖动而被停止的进程：禁用【启动】按钮，需要点击“确认已处理”按钮去激活 #}
+                              {% if proc.is_flapping %}
+                                <a href="{{ url_for('index_one', method='supervisor.startProcess', name=proc.name, node=sn) }}" class="btn btn-start disabled" data-action="start">启动</a>
+                              
+                              {# 停止/退出状态：只显示【启动】按钮 #}
+                              {% elif st in ['STOPPED', 'EXITED', 'FATAL', 'BACKOFF'] %}
+                                <a href="{{ url_for('index_one', method='supervisor.startProcess', name=proc.name, node=sn) }}" class="btn btn-start" data-action="start">启动</a>
+                              
+                              {# 运行状态：显示【停止】【重启】，隐藏启动按钮 #}
+                              {% elif st == 'RUNNING' %}
+                                <a href="{{ url_for('index_one', method='supervisor.stopProcess', name=proc.name, node=sn) }}" class="btn btn-stop" data-action="stop">停止</a>
+                                <a href="{{ url_for('index_restartOne', name=proc.name, node=sn) }}" class="btn btn-restart" data-action="restart">重启</a>
+                              
                               {# 中间状态（启动中/停止中）：按钮全部禁用，防止误操作 #}
                               {% else %}
-                                <button class="btn btn-stop" disabled>停止</button>
-                                <button class="btn btn-start" disabled>启动</button>
-                                <button class="btn btn-restart" disabled>重启</button>
+                                <a href="" class="btn btn-start disabled">启动</a>
+                                <a href="" class="btn btn-stop disabled">停止</a>
+                                <a href="" class="btn btn-restart disabled">重启</a>
                               {% endif %}
                             </div>
                             
@@ -649,9 +705,9 @@
                             📁 {{ proc.group_name }}
                         </div>
                         <div class="process-ops">
-                            <a href="{{ url_for('index_one', method='supervisor.stopProcessGroup', name=proc.group_name, title=sn) }}" class="btn btn-stop" data-action="stop-group" onclick="event.stopPropagation()">停止组</a>
-                            <a href="{{ url_for('index_one', method='supervisor.startProcessGroup', name=proc.group_name, title=sn) }}" class="btn btn-start" data-action="start-group" onclick="event.stopPropagation()">启动组</a>
-                            <a href="{{ url_for('index_restartGroup', name=proc.group_name, title=sn) }}" class="btn btn-restart" data-action="restart-group" onclick="event.stopPropagation()">组重启</a>
+                            <a href="{{ url_for('index_one', method='supervisor.startProcessGroup', name=proc.group_name, node=sn) }}" class="btn btn-start" data-action="start-group" onclick="event.stopPropagation()">启动组</a>
+                            <a href="{{ url_for('index_one', method='supervisor.stopProcessGroup', name=proc.group_name, node=sn) }}" class="btn btn-stop" data-action="stop-group" onclick="event.stopPropagation()">停止组</a>
+                            <a href="{{ url_for('index_restartGroup', name=proc.group_name, node=sn) }}" class="btn btn-restart" data-action="restart-group" onclick="event.stopPropagation()">组重启</a>
                         </div>
                     </div>
                     <div class="group-process-container hidden">
@@ -659,31 +715,47 @@
                         {% for sub_proc in proc.processes %}
                             {# 组名:程序名，中间用冒号在模板中使用 ~ 连接 #}
                             {% set full_name = sub_proc.group ~ ':' ~ sub_proc.name %}
-                            <li class="process-item {{ sub_proc.statename }}" data-proc="{{ full_name }}">
+                            <li class="process-item {% if sub_proc.is_flapping %}flapping{% else %}{{ sub_proc.statename }}{% endif %}" data-proc="{{ full_name }}" data-node="{{ sn }}"  data-statename="{{ sub_proc.statename }}">
                                 <div class="process-top">
                                     <div class="process-info">
-                                        <span class="proc-name" title="{{ sub_proc.name }}">{{ sub_proc.name }}</span>
+                                        <span class="proc-name">{{ sub_proc.name }}</span>
                                         <span class="proc-status status-{{ sub_proc.statename | lower }}">{{ sub_proc.statename }}</span>
                                     </div>
                                     
                                 </div>
                                 <div class="process-bottom">
-                                    <span class="proc-desc {% if 'error' in sub_proc.description.lower() or 'exit' in sub_proc.description.lower() or 'fatal' in sub_proc.description.lower() %}error{% endif %}" title="{{ sub_proc.description }}">{{ sub_proc.description }}</span>
+                                    
+                                    {% if sub_proc.is_flapping %}
+                                      <span class="proc-desc" title="{{ sub_proc.state_tip }}" title="{{ sub_proc.state_tip }}">{{ sub_proc.state_tip }}</span>
+                                      <button class="ack-btn-inline">✓ 确认已处理</button>
+                                    {% else %}
+                                      <span class="proc-desc">{{ sub_proc.description | default('--', boolean=True) }}</span>
+                                      
+                                    {% endif %}
                                     
                                     <!-- 按钮 -->
                                     <div class="process-ops">
+                                      
+                                      {% set sub_st = sub_proc.statename|upper %}
+                                      
+                                      {# 因为抖动而被停止的进程：禁用【启动】按钮，需要点击“确认已处理”按钮去激活 #}
+                                      {% if sub_proc.is_flapping %}
+                                        
+                                        <a href="{{ url_for('index_one', method='supervisor.startProcess', name=full_name, node=sn) }}" class="btn btn-start disabled" data-action="start">启动</a>
+                                      {# 停止/退出状态：只显示启动 #}
+                                      {% elif sub_st in ['STOPPED', 'EXITED', 'FATAL', 'BACKOFF'] %}
+                                        <a href="{{ url_for('index_one', method='supervisor.startProcess', name=full_name, node=sn) }}" class="btn btn-start" data-action="start">启动</a>
+                                      
                                       {# 组内子进程：运行状态显示停止+重启 #}
-                                      {% if sub_proc.statename|upper == 'RUNNING' %}
-                                        <a href="{{ url_for('index_one', method='supervisor.stopProcess', name=full_name, title=sn) }}" class="btn btn-stop" data-action="stop">停止</a>
-                                        <a href="{{ url_for('index_restartOne', name=full_name, title=sn) }}" class="btn btn-restart" data-action="restart">重启</a>
-
-                                      {# 停止/退出/崩溃状态：只显示启动 #}
-                                      {% elif sub_proc.statename|upper in ['STOPPED', 'EXITED', 'FATAL', 'BACKOFF'] %}
-                                        <a href="{{ url_for('index_one', method='supervisor.startProcess', name=full_name, title=sn) }}" class="btn btn-start" data-action="start">启动</a>
-
+                                      {% elif sub_st == 'RUNNING' %}
+                                        <a href="{{ url_for('index_one', method='supervisor.stopProcess', name=full_name, node=sn) }}" class="btn btn-stop" data-action="stop">停止</a>
+                                        <a href="{{ url_for('index_restartOne', name=full_name, node=sn) }}" class="btn btn-restart" data-action="restart">重启</a>
+                                      
                                       {# 启动中/停止中：按钮全部禁用，防止重复点击 #}
                                       {% else %}
-                                        <button class="btn" disabled>处理中</button>
+                                        <a href="" class="btn btn-start disabled">启动</a>
+                                        <a href="" class="btn btn-stop disabled">停止</a>
+                                        <a href="" class="btn btn-restart disabled">重启</a>
                                       {% endif %}
                                     </div>
                                     
@@ -730,7 +802,7 @@
     // ========== 统计单节点数据 ==========
     function countServerStats(server) {
         const procs = server.querySelectorAll('.process-item');
-        let total = 0, running = 0, stopped = 0, error = 0;
+        let total = 0, running = 0, stopped = 0, error = 0, flapping = 0;
         
         procs.forEach(p => {
             total++;
@@ -744,10 +816,12 @@
             } else if (p.classList.contains('FATAL') || p.classList.contains('BACKOFF') ||
                        p.classList.contains('fatal') || p.classList.contains('backoff')) {
                 error++;
+            } else if (p.classList.contains('FLAPPING') || p.classList.contains('flapping')) {
+                flapping++;
             }
         });
         
-        return { total, running, stopped, error };
+        return { total, running, stopped, error, flapping };
     }
 
 
@@ -756,7 +830,7 @@
         const servers = document.querySelectorAll('.server-block');
         let totalNodes = servers.length;
         let onlineNodes = 0;
-        let gTotal = 0, gRunning = 0, gStopped = 0, gError = 0;
+        let gTotal = 0, gRunning = 0, gStopped = 0, gError = 0, gFlapping = 0;
         
         //设置倒计时圆环动画时长
         setRingAnimation(REFRESH_INTERVAL);
@@ -767,30 +841,33 @@
             if (!hasError) onlineNodes++;
             
             const stats = countServerStats(server);
-            gTotal += stats.total;
-            gRunning += stats.running;
-            gStopped += stats.stopped;
-            gError += stats.error;
+            gTotal    += stats.total;
+            gRunning  += stats.running;
+            gStopped  += stats.stopped;
+            gError    += stats.error;
+            gFlapping += stats.flapping;
             
             // 更新单节点统计数字
             const sn = server.dataset.server;
             const statEl = document.getElementById('node-stats-' + sn);
             if (statEl) {
-                statEl.querySelector('.node-total').textContent = stats.total;
-                statEl.querySelector('.node-running').textContent = stats.running;
-                statEl.querySelector('.node-stopped').textContent = stats.stopped;
-                statEl.querySelector('.node-error').textContent = stats.error;
+                statEl.querySelector('.node-total').textContent    = stats.total;
+                statEl.querySelector('.node-running').textContent  = stats.running;
+                statEl.querySelector('.node-stopped').textContent  = stats.stopped;
+                statEl.querySelector('.node-error').textContent    = stats.error;
+                statEl.querySelector('.node-flapping').textContent = stats.flapping;
                 
             }
         });
 
         // 更新全局统计
-        document.getElementById('stat-total-nodes').textContent = totalNodes;
-        document.getElementById('stat-online-nodes').textContent = onlineNodes;
-        document.getElementById('stat-total-procs').textContent = gTotal;
-        document.getElementById('stat-running-procs').textContent = gRunning;
-        document.getElementById('stat-stopped-procs').textContent = gStopped;
-        document.getElementById('stat-error-procs').textContent = gError;
+        document.getElementById('stat-total-nodes').textContent    = totalNodes;
+        document.getElementById('stat-online-nodes').textContent   = onlineNodes;
+        document.getElementById('stat-total-procs').textContent    = gTotal;
+        document.getElementById('stat-running-procs').textContent  = gRunning;
+        document.getElementById('stat-stopped-procs').textContent  = gStopped;
+        document.getElementById('stat-error-procs').textContent    = gError;
+        document.getElementById('stat-flapping-procs').textContent = gFlapping;
         
     }
 
@@ -1040,6 +1117,41 @@
         setInterval(autoRefreshAll, REFRESH_INTERVAL);
         
     });
+
+    // 点击“确认已处理”按钮，消除当前进程的历史数据，在后台消除
+    document.addEventListener('click', async (e) => {
+      const ackBtn = e.target.closest('.ack-btn-inline')
+      if (!ackBtn) return
+      
+      // 定位按钮所在的那一块（当前进程）closest 是"从当前按钮往上找最近的祖先"
+      const liEl = ackBtn.closest('.process-item')//这里就是找到li标签
+      if (!liEl) return;
+      
+      // 发请求给后端，清除数据
+      await fetch('/api/ack_flap', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          node: liEl.dataset.node, 
+          proc_name: liEl.dataset.proc, 
+          
+        })
+      })
+      
+      liEl.classList.remove('flapping') // 后端清成功了再删前端类，删除抖动标记
+      
+      statename = liEl.dataset.statename//此时的状态就是 STOPPED，因为是抖动被停止的
+      liEl.classList.add(statename) // 把当前状态作为类名，填入 class
+      
+      // 激活当前进程的操作按钮
+      // 在 liEl 内部找所有操作按钮，逐个去掉 disabled 类
+      liEl.querySelectorAll('.process-ops a').forEach(a => {
+          a.classList.remove('disabled');
+      });
+      
+      ackBtn.remove() // 删按钮
+      
+    })
 
 
 </script>
