@@ -38,8 +38,8 @@ Restarted supervisord
 ```
 ### 安装及初始化配置
 ```
-apt install -y build-essential python3-dev libevent-dev websockets && \
-python3 -m pip install supervisor && \
+apt install -y build-essential python3-dev libevent-dev && \
+python3 -m pip install supervisor websockets && \
 mkdir -p /etc/supervisor && \
 echo_supervisord_conf > /etc/supervisor/supervisord.conf && \
 cp /etc/supervisor/supervisord.conf /etc/supervisor/supervisord.conf.bak && \
