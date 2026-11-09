@@ -38,8 +38,8 @@ import time, datetime, os
 
 # ========== 配置项，想改就改这里 ==========
 LOG_PATH = '/etc/supervisor/power_test.log'  # 日志路径
-MAX_LINES = 100                     # 最多保留的行数，超过就删开头
-CHECK_INTERVAL = 10                 # 每写100行检查一次（不用改，减少SD卡写入）
+MAX_LINES = 3600     # 最多保留的行数，超过就删开头
+CHECK_INTERVAL = 60  # 每写60行检查一次（不用改，减少SD卡写入）
 # ========================================
 
 # 强制锁定北京时间，不受系统时钟错乱影响
