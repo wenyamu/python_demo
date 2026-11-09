@@ -604,7 +604,9 @@
             </div>
             
             {% if not processes %}
-                <p class="error-tip">⚠ 服务器连接失败</p>
+                <ul class="process-list">
+                  <p class="error-tip">⚠ 服务器连接失败</p>
+                </ul>
             {% else %}
                 <!-- ========== 单节点统计条 ========== -->
                 <div class="server-stats" id="node-stats-{{ sn }}">
@@ -999,7 +1001,7 @@
         const toast = document.getElementById('toast');
         toast.textContent = msg;
         toast.className = `toast show ${type}`;
-        setTimeout(() => toast.classList.remove('show'), 2000);
+        setTimeout(() => toast.classList.remove('show'), 1000);
     }
 
     // ========== 全局AJAX拦截：所有操作都只刷新单节点，不整页刷新 ==========
