@@ -69,7 +69,7 @@ import time, datetime, os
 os.environ['TZ'] = 'Asia/Shanghai'
 time.tzset()
 
-# 追加模式（不覆盖旧内容，保留完整时间线），写到/python目录（SD卡持久存储，不会像/tmp那样断电清空）
+# 追加模式（不覆盖旧内容，保留完整时间线）
 with open('/etc/supervisor/power_test.log', 'a', buffering=1) as f:
     # 每次启动先打一行明显标记，断电重启后一眼就能看到分界点
     start_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
