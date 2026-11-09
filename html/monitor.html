@@ -482,10 +482,9 @@
 <script>
   // ============== 服务器列表：改成你自己的节点 ==============
   const servers = [
-    { nodename: "北京01", ip: "192.168.1.121", port: 8765 },
-    { nodename: "上海02", ip: "192.168.1.122", port: 8765 },
-    { nodename: "广州03", ip: "192.168.1.123", port: 8765 },
-    { nodename: "天津04", ip: "192.168.1.124", port: 8765 },
+    { nodename: "本地01", ip: "192.168.1.121", port: 8765 },
+    { nodename: "北京01", ip: "192.168.1.122", port: 8765 },
+    { nodename: "docker", ip: "192.168.1.122", port: 5000 },
   ];
   // ==========================================================
 
@@ -506,7 +505,7 @@
       card.id = `card-${server.ip}:${server.port}`;
       card.innerHTML = `
         <div class="server-header">
-            <!-- 第一行：左边标题，右边按钮，水平排列 -->
+            
             <div class="server-title">
                 <span class="status-dot disconnected" id="dot-${server.ip}:${server.port}"></span>
                 <h3>${server.nodename}<span class="server-ip">${server.ip}:${server.port}</span></h3>
@@ -535,7 +534,7 @@
           </div>
         </div>
         <div class="proc-list" id="procs-${server.ip}:${server.port}">
-          <p class="error-tip">⚠ 服务器连接失败</p>
+          <!-- <p class="error-tip">⚠ 服务器连接失败</p> -->
         </div>
         `;
       dashboard.appendChild(card);
@@ -548,21 +547,29 @@
   function connectToServer(server) {
     console.log('开始连接 server:');
     console.log(server);
-    const ws = new WebSocket('ws://' + server.ip + ':' + server.port);
-
+    const ws = new WebSocket(`ws://${server.ip}:${server.port}`);
+    
+    /*如果连接失败, 添加节点失败提示、并清空节点数据*/
+    const procsEl = document.getElementById(`procs-${server.ip}:${server.port}`);
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        serverData[`${server.ip}:${server.port}`].connected = false;
+        serverData[`${server.ip}:${server.port}`].processes = {};
+        procsEl.innerHTML = '<p class="error-tip">⚠ 服务器连接失败</p>';
+        updateServerStats(`${server.ip}:${server.port}`);
+    }
+    
     ws.onopen = () => {
       serverData[`${server.ip}:${server.port}`].connected = true;
       serverData[`${server.ip}:${server.port}`].ws = ws;
-      document.getElementById('dot-' + `${server.ip}:${server.port}`).className = 'status-dot connected';
-      // console.log(`${server.nodename} 已连接`);
-      console.log(server.nodename + "已连接");
+      document.getElementById(`dot-${server.ip}:${server.port}`).className = 'status-dot connected';
+      console.log(`${server.nodename} 已连接`);
       updateGlobalStats();
     };
 
     ws.onclose = () => {
       serverData[`${server.ip}:${server.port}`].connected = false;
       serverData[`${server.ip}:${server.port}`].ws = null;
-      const dot = document.getElementById('dot-' + `${server.ip}:${server.port}`);
+      const dot = document.getElementById(`dot-${server.ip}:${server.port}`);
       if (dot) dot.className = 'status-dot disconnected';
       setTimeout(() => connectToServer(server), 3000);
       updateGlobalStats();
@@ -573,7 +580,7 @@
       
       // 定时节点全量更新时返回的数据
       if (data.type === 'full_sync') {
-        const container = document.getElementById('procs-' + `${server.ip}:${server.port}`);
+        const container = document.getElementById(`procs-${server.ip}:${server.port}`);
         container.innerHTML = '';
         serverData[`${server.ip}:${server.port}`].processes = {};
         data.data.forEach(proc => {
@@ -595,8 +602,6 @@
           full_name: procName,
           name: data.raw_process || procName.split(':').pop(),
           group: data.group || '',
-          //from_state: data.from_state,//
-          //expected: data.expected,//
           statename: statename,
           pid: data.pid || existing.pid || 0,
           flapping: !!data.flapping,
@@ -702,7 +707,6 @@
   }
 
   function smartUpdateDesc(oldDesc, newPid, statename) {
-    
     let obj = parseProcDesc(oldDesc);//{ pid: 123, uptime: 0:00:02, uptimeSec: 2 }
     
     const pid = Number(newPid);
@@ -776,7 +780,6 @@
 
 
   function smartUpdateDesc_time(oldDesc, newPid, statename, start, stop, state) {
-    
     const nowSec = Math.floor(Date.now() / 1000);//当时时间戳，秒
     const pid = Number(newPid);
     
@@ -936,17 +939,19 @@
   }
 
   function restartSupervisor(serverIpAndPort) {
-      if (!confirm('⚠️ 危险操作！\n\n重启Supervisor会导致该节点所有被管理进程短暂中断，Supervisor重启后会自动拉起进程。\n\n是否确认继续？')) {
-          return;
-      }
-      const ws = serverData[serverIpAndPort].ws;
-      console.log('提取 wsUrl:');
-      console.log(ws.url);//ws://192.168.1.121:8765/
+      const ws = serverData[serverIpAndPort]?.ws;
       
       if (!ws || ws.readyState !== WebSocket.OPEN) {
           alert('节点未连接，无法执行操作');
           return;
       }
+      
+      if (!confirm('⚠️ 危险操作！\n\n重启Supervisor会导致该节点所有被管理进程短暂中断，Supervisor重启后会自动拉起进程。\n\n是否确认继续？')) {
+          return;
+      }
+      
+      console.log('提取 wsUrl:');
+      console.log(ws.url);//ws://192.168.1.121:8765/
       
       // 用 JS 内置的 URL 解析器，拆出 ip 和 port‌
       const u = new URL(ws.url);
@@ -976,27 +981,34 @@
   }
 
 
-  function updateServerStats(ip) {
-    const procs = Object.values((serverData[ip] && serverData[ip].processes) || {});
+  function updateServerStats(serverIpAndPort) {
+    let total = 0, running = 0, dead = 0, error = 0, flapping = 0;
     
-    const flapping = procs.filter(p => p.flapping).length;
-    // 👇 每个桶都先排除带抖动标记的，它们只归 flapping 这一桶
-    const total    = procs.filter(p => p.statename).length;
-    const running  = procs.filter(p => !p.flapping && p.statename === 'RUNNING').length;
-    const stopped  = procs.filter(p => !p.flapping && ['STOPPED', 'EXITED'].includes(p.statename)).length;
-    const error    = procs.filter(p => !p.flapping && ['FATAL', 'BACKOFF'].includes(p.statename)).length;
+    const totalEl = document.getElementById(`total-${serverIpAndPort}`);
+    const runEl   = document.getElementById(`run-${serverIpAndPort}`);
+    const stopEl  = document.getElementById(`stop-${serverIpAndPort}`);
+    const errEl   = document.getElementById(`err-${serverIpAndPort}`);
+    const flapEl  = document.getElementById(`flap-${serverIpAndPort}`);
     
-    const totalEl  = document.getElementById('total-' + ip);
-    const runEl  = document.getElementById('run-' + ip);
-    const stopEl = document.getElementById('stop-' + ip);
-    const errEl  = document.getElementById('err-' + ip);
-    const flapEl = document.getElementById('flap-' + ip);
+    const procs = Object.values((serverData[serverIpAndPort] && serverData[serverIpAndPort].processes) || {});
     
-    if (totalEl)  totalEl.textContent  = total;
-    if (runEl)  runEl.textContent  = running;
-    if (stopEl) stopEl.textContent = stopped;
-    if (errEl)  errEl.textContent  = error;
-    if (flapEl) flapEl.textContent = flapping;
+    console.log("当前节点："+serverIpAndPort);
+    console.log(procs);
+    
+    //如果有节点进程数据
+    if (procs) {
+      total    = procs.filter(p => p.statename).length;
+      running  = procs.filter(p => !p.flapping && p.statename === 'RUNNING').length;
+      dead     = procs.filter(p => !p.flapping && ['STOPPED', 'EXITED'].includes(p.statename)).length;
+      error    = procs.filter(p => !p.flapping && ['FATAL', 'BACKOFF'].includes(p.statename)).length;
+      flapping = procs.filter(p => p.flapping).length;
+    }
+    
+    if (totalEl) totalEl.textContent = total;
+    if (runEl)   runEl.textContent   = running;
+    if (stopEl)  stopEl.textContent  = dead;
+    if (errEl)   errEl.textContent   = error;
+    if (flapEl)  flapEl.textContent  = flapping;
   }
 
 
@@ -1008,21 +1020,21 @@
       
       Object.values(s.processes).forEach(p => {
         if (!p) return;
-        total++;                       // 总数照常统计（含 flapping）
+        if (s.connected) total++;       // 总数照常统计（含 flapping）
         
-        // 👇 关键：只要带抖动标记，就只进 flapping 桶，其余一概不参与
+        // 👇 只要带抖动标记，就只进 flapping
         if (p.flapping) {
-          flapping++;
+          if (s.connected) flapping++;
           return;                      // 相当于 forEach 里的 continue
         }
         
-        // 下面只有"非 flapping"的进程才会走到，三个桶互斥
-        if (p.statename === 'RUNNING') running++;
-        if (['STOPPED', 'EXITED'].includes(p.statename)) dead++;
-        if (['FATAL', 'BACKOFF'].includes(p.statename)) error++;
+        // 下面只有"非 flapping"的进程才会走到这一层
+        if (p.statename === 'RUNNING' && s.connected) running++;
+        if (['STOPPED', 'EXITED'].includes(p.statename) && s.connected) dead++;
+        if (['FATAL', 'BACKOFF'].includes(p.statename) && s.connected) error++;
       });
     });
-
+    
     document.getElementById('stat-total-nodes').textContent = servers.length;
     document.getElementById('stat-online-nodes').textContent = online;
     document.getElementById('stat-total-procs').textContent = total;
@@ -1032,7 +1044,14 @@
     document.getElementById('stat-flapping-procs').textContent = flapping;
   }
   
-  initDashboard();
+  
+  // 页面加载完，执行
+  document.addEventListener('DOMContentLoaded', () => {
+      // 页面加载完更新节点列表
+      initDashboard();
+      
+  });
+  
   
   /*  背景主题样式切换 */
   // 1. 初始化：读本地存储，没有则默认深色页面
@@ -1061,7 +1080,7 @@
       const procList = document.getElementById(`card-${serverIpAndPort}`);
       if (!procList || procList.classList.contains('loading')) return;
       procList.classList.add('loading'); // 加类，显示蒙版
-      setTimeout(() => procList.classList.remove('loading'), 1000); // 1秒后移除类，蒙版消失
+      setTimeout(() => procList.classList.remove('loading'), 500); // 0.5秒后移除类，蒙版消失
       
       /* 点击刷新按钮 */
       const btn = document.getElementById(`btn-refresh-${serverIpAndPort}`);
@@ -1080,10 +1099,10 @@
           type: 'refresh',
           req_id: reqId
       }));
-      // 1秒超时恢复按钮
+      // 0.5秒超时恢复按钮
       setTimeout(() => {
           btn.disabled = false;
-      }, 1000);
+      }, 500);
   }
   
   // ========== 排序开关切换（和主题切换逻辑完全相同） ==========
