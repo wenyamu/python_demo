@@ -63,27 +63,68 @@ EOF
 
 ### 创建程序文件
 ```
-cat > /etc/supervisor/power_test.py << 'EOF'
+cat > /etc/supervisor/power_test.py << EOF
 import time, datetime, os
-# 强制锁定北京时间，不受系统时区错乱影响
+
+# ========== 配置项，想改就改这里 ==========
+LOG_PATH = '/etc/supervisor/power_test.log'  # 日志路径
+MAX_LINES = 3600     # 最多保留的行数，超过就删开头
+CHECK_INTERVAL = 60  # 每写60行检查一次（不用改，减少SD卡写入）
+# ========================================
+
+# 强制锁定北京时间，不受系统时钟错乱影响
 os.environ['TZ'] = 'Asia/Shanghai'
 time.tzset()
 
-# 追加模式（不覆盖旧内容，保留完整时间线）
-with open('/etc/supervisor/power_test.log', 'a', buffering=1) as f:
-    # 每次启动先打一行明显标记，断电重启后一眼就能看到分界点
-    start_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-    f.write(f'\n=== 进程启动 @ {start_time} ===\n')
-    f.flush()
-    os.fsync(f.fileno())  # 强制立刻写磁盘，不留在内存缓冲，断电最多丢最后1行
-
-    while True:
-        # 精确到毫秒（%f是微秒，截前3位就是毫秒）
-        now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-        f.write(now + '\n')
+def trim_to_max_lines():
+    """截断日志，只保留最后MAX_LINES行（原子操作，不会损坏文件）"""
+    if not os.path.exists(LOG_PATH):
+        return
+    with open(LOG_PATH, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+    if len(lines) <= MAX_LINES:
+        return
+    # 只留最后MAX_LINES行，前面的全删掉
+    keep_lines = lines[-MAX_LINES:]
+    # 先写临时文件，再原子替换，避免写一半断电损坏原日志
+    tmp_path = LOG_PATH + '.tmp'
+    with open(tmp_path, 'w', encoding='utf-8') as f:
+        f.writelines(keep_lines)
         f.flush()
-        os.fsync(f.fileno())  # 每一行都强制落盘
-        time.sleep(1)  # 真·每秒写一次，不会打满CPU
+        os.fsync(f.fileno())
+    os.replace(tmp_path, LOG_PATH)
+    
+# 启动时先截断一次（处理之前遗留的大文件）
+trim_to_max_lines()
+
+def get_uptime():
+    """内核开机秒数，不受墙钟跳变影响，断电重启必归零"""
+    with open('/proc/uptime') as fp:
+        return float(fp.read().split()[0])
+    
+# 追加模式打开文件，行缓冲
+with open(LOG_PATH, 'a', buffering=1, encoding='utf-8') as f:
+    proc_start = time.monotonic()
+    # 写启动标记
+    start_line = (f'\n===== 启动 | 墙钟 {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")} '
+                  f'| 开机 {get_uptime():.1f}s | PID {os.getpid()} =====\n')
+    f.write(start_line)
+    f.flush(); os.fsync(f.fileno())
+    
+    line_count = 0
+    while True:
+        # 写当前行
+        now_ms = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+        log_line = (f'{now_ms} | {get_uptime():.1f}s | 运行{time.monotonic()-proc_start:.1f}s\n')
+        f.write(log_line)
+        f.flush(); os.fsync(f.fileno())
+        
+        line_count += 1
+        # 每写CHECK_INTERVAL行检查一次，超了就截断
+        if line_count >= CHECK_INTERVAL:
+            trim_to_max_lines()
+            line_count = 0
+        time.sleep(1)
 EOF
 ```
 
