@@ -30,6 +30,7 @@ password = admin
 files = /etc/supervisor/my_config/*.conf
 EOF
 ```
+
 ### 创建程序文件
 ```
 cat > /etc/supervisor/power_test.py << 'EOF'
