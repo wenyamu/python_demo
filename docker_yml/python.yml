@@ -1,9 +1,9 @@
 version: '3'
 services:
-  dc1:
+  abc:
     # 镜像本地无则自动下载
-    image: python:alpine
-    hostname: pythonHost
+    image: python:slim-bullseye
+    hostname: supervisorHost
     # 映射端口 【宿主机端口:容器端口】
     ports:
       - "9527:9527" #ws端口
@@ -12,7 +12,7 @@ services:
     volumes:
       - /root/python:/etc/supervisor
     # 容器名称
-    container_name: pythontest
+    container_name: supervisortest
     restart: always
     # 相当于 docker run -i
     stdin_open: true
