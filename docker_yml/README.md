@@ -13,7 +13,8 @@ docker exec -it supervisortest bash
 python3 -m pip install supervisor websockets && \
 mkdir -p /etc/supervisor && \
 echo_supervisord_conf > /etc/supervisor/supervisord.conf && \
-cp /etc/supervisor/supervisord.conf /etc/supervisor/supervisord.conf.bak
+cp /etc/supervisor/supervisord.conf /etc/supervisor/supervisord.conf.bak && \
+grep -Ev '^\s*[;#]' /etc/supervisor/supervisord.conf.bak | cat -s > /etc/supervisor/supervisord.conf
 ```
 
 ### 配置 supervisor
