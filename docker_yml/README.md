@@ -5,7 +5,7 @@ docker compose -f python.yml up -d
 
 ### 进入容器
 ```
-docker exec -it supervisortest sh
+docker exec -it supervisortest bash
 ```
 
 ### 安装 supervisor
