@@ -133,12 +133,12 @@ cat > /etc/supervisor/my_config/time_app.conf <<EOF
 ;创建该项目用户
 user = root
 
-;应用目录，文件的默认存放目录 /root/test
-directory = /root/test
+;应用目录，power_test.py 文件的默认存放目录
+directory = /etc/supervisor
 
 ;程序命令
 ;command = tail -f /dev/null #如果只是测试，不想创建程序文件，可以用这一条
-command = python3 /etc/supervisor/power_test.py
+command = python3 power_test.py
 
 autostart = true ;在supervisord启动的时候，false 表示不自动启动，true 表示随着启动
 autorestart = true ;程序异常退出后，false 表示不自动重启，true 表示自动重启
