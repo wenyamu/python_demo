@@ -1,0 +1,208 @@
+{% set processes = funAllInfo(sn) %}
+<div class="server-header">
+    <h3>
+        <span class="server-status-dot {% if processes %}connected{% else %}error{% endif %}"></span>
+        {% if processes %}
+          <a href="{{ url_for('index', node=sn) }}" class="btn btn-node-detail" onclick="window.open(this.href, '_self'); return false;" style="font-size: 16px; font-weight: 600;padding: 0;">{{ info.nodename }}</a>
+        {% else %}
+          {{ info.nodename }}
+        {% endif %}
+        <span class="ip">{{ info.ip }}:{{ info.port }}</span>
+        {% if processes %}
+        <!-- 自动刷新倒计时小圆环 -->
+      
+          <div class="refresh-countdown" style="">
+              <svg class="refresh-countdown-svg" viewBox="0 0 36 36">
+                  <circle class="refresh-ring-bg" cx="18" cy="18" r="14"/>
+                  <circle class="refresh-ring-progress" cx="18" cy="18" r="14"/>
+              </svg>
+          </div>
+        
+        {% endif %}
+    </h3>
+    {% if processes %}
+    <a href="{{ url_for('restartSupervisor', node=sn) }}" class="btn btn-restart-supervisor" data-action="restart-supervisor">⚠ 重启 Supervisor</a>
+    {% endif %}
+</div>
+
+{% if not processes %}
+    <ul class="process-list">
+      <p class="error-tip">⚠ 服务器连接失败</p>
+    </ul>
+{% else %}
+    <!-- ========== 单节点统计条 ========== -->
+    <div class="server-stats" id="node-stats-{{ sn }}">
+        <div class="server-stat-item">
+            <!-- <span class="stat-label">进程</span> -->
+            <span class="stat-value blue node-total" style="background: #3b82f622; color: #3b82f6;padding: 2px 10px; border-radius: 4px;">0</span>
+        </div>
+        <div class="server-stat-item">
+            <span class="stat-label">运行</span>
+            <span class="stat-value green node-running">0</span>
+        </div>
+        <div class="server-stat-item">
+            <span class="stat-label">停止</span>
+            <span class="stat-value gray node-stopped">0</span>
+        </div>
+        <div class="server-stat-item">
+            <span class="stat-label">异常</span>
+            <span class="stat-value red node-error">0</span>
+        </div>
+        <div class="server-stat-item">
+            <span class="stat-label">抖动</span>
+            <span class="stat-value orange node-flapping">0</span>
+        </div>
+        <button class="btn btn-refresh-node" data-action="refresh-node" title="刷新当前节点">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-bottom:2px;">
+                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+            </svg>
+            刷新
+        </button>
+        {#
+        <!-- <div style="display: flex;align-items: center;margin-left: auto;">
+            <a href="{{ url_for('reloadConfig', node=sn) }}" class="btn btn-reload-config" data-action="reload-config" title="更新当前节点（包括重新加载配置）">更新配置</a>
+        </div>-->
+        #}
+    </div>
+    
+    <div class="server-actions" style="display:none">
+        <a href="{{ url_for('startOrStop', method='supervisor.startAllProcesses', name='', node=sn) }}" class="btn btn-start-all" data-action="start-all">全部启动</a>
+        <a href="{{ url_for('startOrStop', method='supervisor.stopAllProcesses', name='', node=sn) }}" class="btn btn-stop-all" data-action="stop-all">全部停止</a>
+        <a href="{{ url_for('restartAll', node=sn) }}" class="btn btn-restart-all" data-action="restart-all">全部重启</a>
+        <a href="{{ url_for('reloadConfig', node=sn) }}" class="btn btn-reload-config" data-action="reload-config" title="更新当前节点（包括重新加载配置）">更新配置</a>
+        
+    </div>
+    
+    <!-- 进程列表 -->
+    <ul class="process-list">
+        <!-- 分组进程 -->
+        {% for proc in processes["groups"] %}
+        <div class="group-card" data-group="{{ proc.group_name }}">
+            <div class="group-header-bar" onclick="toggleGroup(this)">
+                <div class="group-title">
+                    <!-- collapsed 表示 折叠 -->
+                    <span class="fold-icon ">▼</span>
+                    📁 {{ proc.group_name }}
+                </div>
+                <div class="process-ops">
+                    <a href="{{ url_for('startOrStop', method='supervisor.startProcessGroup', name=proc.group_name, node=sn) }}" class="btn btn-start" data-action="start-group" onclick="event.stopPropagation()">启动组</a>
+                    <a href="{{ url_for('startOrStop', method='supervisor.stopProcessGroup', name=proc.group_name, node=sn) }}" class="btn btn-stop" data-action="stop-group" onclick="event.stopPropagation()">停止组</a>
+                    <a href="{{ url_for('restartGroup', name=proc.group_name, node=sn) }}" class="btn btn-restart" data-action="restart-group" onclick="event.stopPropagation()">组重启</a>
+                </div>
+            </div>
+            <!-- hidden 表示 折叠 -->
+            <div class="group-process-container ">
+                <ul class="process-list">
+                {% for sub_proc in proc.processes %}
+                    {# 组名:程序名，中间用冒号在模板中使用 ~ 连接 #}
+                    {% set full_name = sub_proc.group ~ ':' ~ sub_proc.name %}
+                    <li class="process-item {% if sub_proc.is_flapping %}flapping{% else %}{{ sub_proc.statename }}{% endif %}" data-proc="{{ full_name }}" data-node="{{ sn }}"  data-statename="{{ sub_proc.statename }}">
+                        <div class="process-top">
+                            <div class="process-info">
+                                <span class="proc-name">{{ sub_proc.name }}</span>
+                                <span class="proc-status status-{{ sub_proc.statename | lower }}">{{ sub_proc.statename }}</span>
+                            </div>
+                            
+                        </div>
+                        <div class="process-bottom">
+                            
+                            {% if sub_proc.is_flapping %}
+                              <span class="proc-desc" title="{{ sub_proc.state_tip }}" title="{{ sub_proc.state_tip }}">{{ sub_proc.state_tip }}</span>
+                              <button class="ack-btn-inline">✓ 确认已处理</button>
+                            {% elif sub_proc.statename in ['STOPPED', 'EXITED', 'BACKOFF', 'FATAL'] %}
+                              <span class="proc-desc">{{ beijing_time(sub_proc.stop) }} 结束</span>
+                            {% else %}
+                              <span class="proc-desc">{{ sub_proc.description | default('--', boolean=True) }}</span>
+                              
+                            {% endif %}
+                            
+                            <!-- 按钮 -->
+                            <div class="process-ops">
+                              
+                              {% set sub_st = sub_proc.statename|upper %}
+                              
+                              {# 因为抖动而被停止的进程：禁用【启动】按钮，需要点击“确认已处理”按钮去激活 #}
+                              {% if sub_proc.is_flapping %}
+                                
+                                <a href="{{ url_for('startOrStop', method='supervisor.startProcess', name=full_name, node=sn) }}" class="btn btn-start disabled" data-action="start">启动</a>
+                              {# 停止/退出状态：只显示启动 #}
+                              {% elif sub_st in ['STOPPED', 'EXITED', 'FATAL', 'BACKOFF'] %}
+                                <a href="{{ url_for('startOrStop', method='supervisor.startProcess', name=full_name, node=sn) }}" class="btn btn-start" data-action="start">启动</a>
+                              
+                              {# 组内子进程：运行状态显示停止+重启 #}
+                              {% elif sub_st == 'RUNNING' %}
+                                <a href="{{ url_for('startOrStop', method='supervisor.stopProcess', name=full_name, node=sn) }}" class="btn btn-stop" data-action="stop">停止</a>
+                                <a href="{{ url_for('restartOne', name=full_name, node=sn) }}" class="btn btn-restart" data-action="restart">重启</a>
+                              
+                              {# 启动中/停止中：按钮全部禁用，防止重复点击 #}
+                              {% else %}
+                                <a href="" class="btn btn-start disabled">启动</a>
+                                <a href="" class="btn btn-stop disabled">停止</a>
+                                <a href="" class="btn btn-restart disabled">重启</a>
+                              {% endif %}
+                            </div>
+                            
+                        </div>
+                    </li>
+                {% endfor %}
+                </ul>
+            </div>
+        </div>
+        {% endfor %}
+        <!-- 分组进程结束 -->
+        
+        <!-- 未分组进程 -->
+        {% for proc in processes["ungrouped"] %}
+        <!-- {% if proc.is_flapping %}{% print( proc ) %}{% endif %} -->
+        <li class="process-item {% if proc.is_flapping %}flapping{% else %}{{ proc.statename }}{% endif %}" data-proc="{{ proc.name }}" data-node="{{ sn }}"  data-statename="{{ proc.statename }}">
+            <div class="process-top">
+                <div class="process-info">
+                    <span class="proc-name">{{ proc.name }}</span>
+                    <span class="proc-status status-{{ proc.statename | lower }}">{{ proc.statename }}</span>
+                </div>
+                
+            </div>
+            <div class="process-bottom">
+                
+                {% if proc.is_flapping %}
+                  <span class="proc-desc" title="{{ proc.state_tip }}">{{ proc.state_tip }}</span>
+                  <button class="ack-btn-inline">✓ 确认已处理</button>
+                {% elif proc.statename in ['STOPPED', 'EXITED', 'BACKOFF', 'FATAL'] %}
+                  <span class="proc-desc">{{ beijing_time(proc.stop) }} 结束</span>
+                {% else %}
+                  <span class="proc-desc">{{ proc.description | default('--', boolean=True) }}</span>
+                  
+                {% endif %}
+                
+                <!-- 按钮 -->
+                <div class="process-ops">
+                  {% set st = proc.statename|upper %}
+                  
+                  {# 因为抖动而被停止的进程：禁用【启动】按钮，需要点击“确认已处理”按钮去激活 #}
+                  {% if proc.is_flapping %}
+                    <a href="{{ url_for('startOrStop', method='supervisor.startProcess', name=proc.name, node=sn) }}" class="btn btn-start disabled" data-action="start">启动</a>
+                  
+                  {# 停止/退出状态：只显示【启动】按钮 #}
+                  {% elif st in ['STOPPED', 'EXITED', 'FATAL', 'BACKOFF'] %}
+                    <a href="{{ url_for('startOrStop', method='supervisor.startProcess', name=proc.name, node=sn) }}" class="btn btn-start" data-action="start">启动</a>
+                  
+                  {# 运行状态：显示【停止】【重启】，隐藏启动按钮 #}
+                  {% elif st == 'RUNNING' %}
+                    <a href="{{ url_for('startOrStop', method='supervisor.stopProcess', name=proc.name, node=sn) }}" class="btn btn-stop" data-action="stop">停止</a>
+                    <a href="{{ url_for('restartOne', name=proc.name, node=sn) }}" class="btn btn-restart" data-action="restart">重启</a>
+                  
+                  {# 中间状态（启动中/停止中）：按钮全部禁用，防止误操作 #}
+                  {% else %}
+                    <a href="" class="btn btn-start disabled">启动</a>
+                    <a href="" class="btn btn-stop disabled">停止</a>
+                    <a href="" class="btn btn-restart disabled">重启</a>
+                  {% endif %}
+                </div>
+                
+            </div>
+        </li>
+        <!-- 未分组进程结束 -->
+        {% endfor %}
+    </ul>
+    <!-- 进程列表结束 -->
+{% endif %}

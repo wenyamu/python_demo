@@ -1,790 +1,135 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <script>
-        // ✅ 修复闪黑：页面最顶部执行主题初始化，渲染前就设置主题
-        const savedTheme = localStorage.getItem('theme') || 'dark';
-        document.documentElement.setAttribute('data-theme', savedTheme);
-        // 首屏禁用过渡，避免闪烁
-        document.documentElement.classList.add('no-transitions');
-    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/monit.css') }}">
     <title>Supervisor 进程监控（RPC版）</title>
     <style>
-        /* ========== 1. 全局变量：默认深色主题 ========== */
-        :root {
-            --bg: #0f1115;
-            --bg-card: #1a1d23;
-            --bg-elevated: #22262e;
-            --bg-hover: #282d36;
-            --border: #2a2f38;
-            --text-primary: #e4e6eb;
-            --text-secondary: #8b92a1;
-            --scrollbar: #3a3f4b;
-            --fatal-bg: #2d1b1b;
-            --shadow-soft: 0 2px 8px rgba(0,0,0,0.2);
-            --halo-opacity: 1;
-        }
-
-        /* ========== 2. 浅色主题 ========== */
-        html[data-theme="light"] {
-            --bg: #f5f7fa;
-            --bg-card: #ffffff;
-            --bg-elevated: #f8f9fb;
-            --bg-hover: #f3f4f6;
-            --border: #e5e7eb;
-            --text-primary: #1f2937;
-            --text-secondary: #6b7280;
-            --scrollbar: #d1d5db;
-            --fatal-bg: #fef2f2;
-            --shadow-soft: 0 2px 12px rgba(0,0,0,0.06);
-            --halo-opacity: 0.8;
-        }
-
-        /* ========== 3. 全局平滑切换 ========== */
-        * {
-            box-sizing: border-box; margin: 0; padding: 0;
-            transition: background-color 0.2s ease, color 0.2s ease,
-                        border-color 0.2s ease, box-shadow 0.2s ease;
-        }
-        /* 首屏加载时禁用过渡，防止闪黑/闪白 */
-        html.no-transitions * { transition: none !important; }
-        body {
-            font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-            background: var(--bg); color: var(--text-primary);
-            padding: 12px 22px; min-height: 100vh;
-            
-        }
-
-        /* ========== 4. 标题栏 ========== */
-        .page-header {
-            display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 12px;
-        }
-        h1 { font-size: 22px; font-weight: 600; }
-        .theme-toggle {
-            padding: 8px 14px; border-radius: 8px;
-            border: 1px solid var(--border);
-            background: var(--bg-elevated);
-            color: var(--text-primary);
-            font-size: 18px; cursor: pointer;
-        }
-        .theme-toggle:hover { background: var(--bg-hover); }
-
-        /* ========== 5. 顶部全局统计条 ========== */
-        .overview {
-            display: flex; gap: 12px; flex-wrap: wrap;
-            margin-bottom: 16px;
-            padding: 10px 16px;
-            background: var(--bg-card);
-            border-radius: 10px;
-            border: 1px solid var(--border);
-        }
-        .stat-item {
-            display: flex; align-items: center; gap: 8px;
-            padding: 4px 8px;
-            border-right: 1px solid var(--border);
-        }
-        .stat-item:last-child { border-right: none; }
-        .stat-icon { font-size: 18px; }
-        .stat-label { font-size: 14px; color: var(--text-secondary); }
-        .stat-value {
-            font-size: 18px; font-weight: 700;
-            font-family: Consolas, monospace;
-        }
-        .stat-value.green { color: #22c55e; }
-        .stat-value.red { color: #ef4444; }
-        .stat-value.blue { color: #3b82f6; }
-        .stat-value.orange { color: #f59e0b; }
-        .stat-value.gray { color: var(--text-secondary); }
-
-        /* ========== 6. 服务器卡片 ========== */
-        .server-container {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));/* 列数自动 */
-            /* grid-template-columns: repeat(3, 1fr);固定3列 */
-            gap: 20px;
-        }
-        .server-block {
-            background: var(--bg-card);
-            border-radius: 10px;
-            border: 1px solid var(--border);
-            overflow: hidden;
-            box-shadow: var(--shadow-soft);
-            position: relative;
-        }
-        .server-block.loading::after {
-            content: '';
-            position: absolute; inset: 0;
-            background: rgba(0,0,0,0.4);
-            z-index: 10;
-            pointer-events: none;
-        }
-        .server-header {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 10px 18px;
-            background: var(--bg-elevated);
-            border-bottom: 1px solid var(--border);
-        }
-        .server-header h3 {
-            font-size: 16px; font-weight: 600;
-            display: flex; align-items: center; gap: 8px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .server-header h3 .ip {
-            color: var(--text-secondary);
-            font-weight: normal;
-            font-family: Consolas, monospace;
-            font-size: 14px;
-        }
-        .server-status-dot {
-            width: 10px; height: 10px; border-radius: 50%;
-            display: inline-block;
-            flex-shrink: 0;
-        }
-        .server-status-dot.connected { background: #22c55e; box-shadow: 0 0 8px #22c55e66; }
-        .server-status-dot.error { background: #ef4444; }
-
-        /* ========== 7. 单节点统计条 ========== */
-        .server-stats {
-            display: flex; gap: 0;
-            padding: 8px 18px;
-            background: var(--bg-card);
-            border-bottom: 1px solid var(--border);
-            font-size: 16px;
-            /* justify-content: flex-end; 加这一行，所有统计项整体靠右排列 */
-        }
-        .server-stat-item {
-            display: flex; align-items: center; gap: 5px;
-            padding: 5px 10px;
-            border-right: 1px solid var(--border);
-        }
-        .server-stat-item:first-child { padding-left: 0; }
-        .server-stat-item:last-child { border-right: none; }
-        
-        /* 批量操作栏 */
-        .server-actions {
-            display: flex; gap: 6px;
-            padding: 8px 14px;
-            background: var(--bg-elevated);
-            border-bottom: 1px solid var(--border);
-        }
-
-        /* 连接失败提示 */
-        .error-tip {
-            padding: 20px; color: #ef4444; text-align: center;
-            font-size: 15px;
-            background: var(--fatal-bg);
-        }
-
-        /* ========== 8. 进程列表 ========== */
-        /* 列表排序按钮 */
-        /* 列表按照 flapping - FATAL/BACKOFF - STOPPED/EXITED - RUNNING 的顺序依次向下排列，由 order 定义 */
-        .sort-enabled .process-list {
-            display: flex; flex-direction: column; /* 这两项是排列必要设置 */
-        }
-        .sort-enabled .process-item.RUNNING, .sort-enabled .process-item.running { order: 4;}
-        
-        .sort-enabled .process-item.STOPPED, .sort-enabled .process-item.EXITED, .sort-enabled .process-item.stopped, .sort-enabled .process-item.exited { order: 3;}
-        
-        .sort-enabled .process-item.FATAL, .sort-enabled .process-item.BACKOFF, .sort-enabled .process-item.fatal, .sort-enabled .process-item.backoff { order: 2; }
-        
-        .sort-enabled .process-item.flapping { order: 1; }
-        
-        /* 列表默认排序 */
-        .process-list {
-            list-style: none;
-            max-height: 400px;
-            overflow-y: auto;
-            padding: 16px;
-            
-        }
-        .process-list::-webkit-scrollbar { width: 6px; }
-        .process-list::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; opacity: 0.7; }
-        .process-list::-webkit-scrollbar-thumb:hover { opacity: 1; }
-
-        /* ========== 9. 进程项：两行布局，不挤在一起 ========== */
-        .process-item {
-            background: var(--bg-elevated);
-            border-radius: 8px;
-            padding: 16px 12px;
-            margin-bottom: 8px;
-            border-left: 4px solid var(--border);
-            transition: background 0.2s;
-            
-        }
-        .process-item:hover { background: var(--bg-hover); }
-        .process-item.RUNNING, .process-item.running { border-left-color: #22c55e; }
-        .process-item.STARTING, .process-item.starting { border-left-color: #3b82f6; }
-        .process-item.STOPPING, .process-item.stopping { border-left-color: #f59e0b; }
-        .process-item.STOPPED, .process-item.EXITED,
-        .process-item.stopped, .process-item.exited { border-left-color: #6b7280; }
-        .process-item.FATAL, .process-item.BACKOFF,
-        .process-item.fatal, .process-item.backoff {
-            border-left-color: #ef4444;
-            background: var(--fatal-bg);
-        }
-        
-        /* Flapping 橙色呼吸动画（颜色自动适配主题） */
-        .process-item.flapping {
-          border: 2px solid #f59e0b;
-          border-left-width: 4px;
-          background: #f59e0b22;
-          animation: crash-pulse 1.4s ease-in-out infinite;
-        }
-        @keyframes crash-pulse {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, calc(0.25 * var(--halo-opacity))); }
-          50%      { box-shadow: 0 0 16px 5px rgba(245, 158, 11, calc(0.5 * var(--halo-opacity))); }
-        }
-        
-        .ack-btn-inline {
-          padding: 2px 8px; border: none; border-radius: 3px;
-          background: #22c55e; color: #fff;
-          font-size: 14px; cursor: pointer; font-weight: 600;
-          white-space: nowrap;
-          margin-right: 6px;
-        }
-        .ack-btn-inline:hover { background: #16a34a; }
-        
-        
-        /* 进程第一行：名称+状态+按钮 */
-        .process-top {
-            display: flex; justify-content: space-between; align-items: center;
-            gap: 8px; margin-bottom: 6px;
-            padding: 0 0 8px 0;
-            
-        }
-        .process-info {
-            display: flex; align-items: center; gap: 8px;
-            flex: 1; min-width: 0;
-        }
-        .proc-name {
-            font-size: 15px; font-weight: 600;
-            color: var(--text-primary);
-            word-break: break-all;
-        }
-        .proc-status {
-            font-size: 13px; padding: 2px 8px;
-            border-radius: 4px; font-weight: 500;
-            display: inline-block;
-            white-space: nowrap; flex-shrink: 0;
-            margin-left: auto; /* 加这一行：自动推到最右侧，名称在左、状态在右，中间自动空开 */
-        }
-        .status-RUNNING, .status-running { background: #22c55e22; color: #22c55e; }
-        .status-STARTING, .status-starting { background: #3b82f622; color: #3b82f6; }
-        .status-STOPPING, .status-stopping { background: #f59e0b22; color: #f59e0b; }
-        .status-STOPPED, .status-EXITED,
-        .status-stopped, .status-exited { background: #6b728022; color: #9ca3af; }
-        .status-FATAL, .status-BACKOFF,
-        .status-fatal, .status-backoff {
-            background: #ef444422; color: #ef4444;
-            animation: status-pulse 2s ease-in-out infinite;
-        }
-        @keyframes status-pulse {
-            0%,100% { opacity: 1; }
-            50% { opacity: 0.7; }
-            
-        }
-        .proc-pid {
-            font-size: 13px; color: var(--text-secondary);
-            font-family: Consolas, monospace;
-            white-space: nowrap;
-        }
-
-        /* 进程第二行：描述 */
-        .process-bottom {
-            display: flex; align-items: center;
-        }
-        .proc-desc {
-            font-size: 13px; color: var(--text-secondary);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            width: 100%;
-        }
-        .proc-desc.error { color: #ef4444; }
-
-        /* 操作按钮 */
-        .process-ops {
-            display: flex; gap: 4px; flex-shrink: 0;
-        }
-        
-        a.disabled {
-            pointer-events: none;   /* 核心：鼠标点不了、hover 也不触发 */
-            opacity: 0.5;           /* 视觉上变灰、变淡，让人知道不可用 */
-            cursor: not-allowed;    /* 鼠标移上去显示"禁止"光标 */
-        }
-
-        /* ========== 10. 分组卡片 ========== */
-        .group-card { border-top: 1px solid var(--border); }
-        .group-header-bar {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 8px 14px;
-            background: var(--bg-elevated);
-            cursor: pointer; user-select: none;
-            border-bottom: 1px solid var(--border);
-            transition: background 0.15s;
-        }
-        .group-header-bar:hover { background: var(--bg-hover); }
-        .group-title {
-            font-size: 13px; font-weight: 600;
-            color: var(--text-primary);
-            display: flex; align-items: center; gap: 6px;
-        }
-        .fold-icon {
-            font-family: Consolas, monospace;
-            font-weight: bold;
-            width: 14px; display: inline-block; text-align: center;
-            color: var(--text-secondary);
-            transition: transform 0.2s;
-        }
-        .fold-icon.collapsed { transform: rotate(-90deg); color: var(--text-secondary); }
-        .group-process-container.hidden { display: none; }
-        .group-process-container .process-item { margin: 6px; }
-
-        /* ========== 11. 按钮样式 ========== */
-        .btn {
-            display: inline-block;
-            padding: 4px 10px; border-radius: 4px;
-            font-size: 13px; font-weight: 500;
-            text-decoration: none; cursor: pointer;
-            border: none;
-            transition: all 0.15s;
-            white-space: nowrap;
-            background: var(--bg-elevated);color: var(--text-primary);
-        }
-        .btn:hover { background: var(--bg-hover); }
-        .btn:active { transform: translateY(1px); }
-        .btn:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
-        .btn.loading { opacity: 0.7; pointer-events: none; }
-
-        /* 单进程按钮 */
-        .btn-start { background: #22c55e22; color: #22c55e; }
-        .btn-start:not(:disabled):hover { background: #22c55e; color: #fff; }
-        .btn-stop { background: #ef444422; color: #ef4444; }
-        .btn-stop:not(:disabled):hover { background: #ef4444; color: #fff; }
-        .btn-restart { background: #f59e0b22; color: #f59e0b; }
-        .btn-restart:not(:disabled):hover { background: #f59e0b; color: #fff; }
-
-        /* 批量按钮 */
-        .btn-stop-all { background: #ef444422; color: #ef4444; }
-        .btn-stop-all:hover { background: #ef4444; color: #fff; }
-        .btn-start-all { background: #22c55e22; color: #22c55e; }
-        .btn-start-all:hover { background: #22c55e; color: #fff; }
-        .btn-restart-all { background: #f59e0b22; color: #f59e0b; }
-        .btn-restart-all:hover { background: #f59e0b; color: #fff; }
-
-        /* 刷新按钮样式 */
-        .btn-refresh-node {
-            background: #3b82f622; color: #3b82f6;
-            margin-left: auto;
-            
-        }
-        .btn-refresh-node:hover:not(:disabled) { background: #3b82f6; color: #fff; }
-        .btn-refresh-node.loading svg { animation: spin 1s linear infinite; }
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
-        /* 重启Supervisor按钮 */
-        .btn-restart-supervisor {
-            background: #ef444422; color: #ef4444;
-            border: 1px solid #ef444466;
-            padding: 5px 10px; border-radius: 4px;
-            font-size: 13px; font-weight: 600; cursor: pointer;
-            flex-shrink: 0; margin-left: 5px; transition: all 0.15s;
-        }
-        .btn-restart-supervisor:hover:not(:disabled) { background: #ef4444; color: white; }
-        .btn-restart-supervisor:disabled { opacity: 0.5; cursor: not-allowed; }
-
-        /* ========== 12. Toast提示 ========== */
-        .toast {
-            position: fixed; top: 20px; left: 50%;
-            transform: translateX(-50%) translateY(-20px);
-            background: rgba(0,0,0,0.8); color: #fff;
-            padding: 10px 20px; border-radius: 8px;
-            font-size: 14px; z-index: 9999;
-            opacity: 0; transition: all 0.3s;
-            pointer-events: none;
-        }
-        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-        .toast.success { background: rgba(34, 197, 94, 0.9); }
-        .toast.error { background: rgba(239, 68, 68, 0.9); }
-
-
-        /* ========== 13. 排序按钮加小问号?提示 ========== */
-        /* 问号小圆圈 */
-        .help-icon {
-            display: none;
-            align-items: center;
-            justify-content: center;
-            width: 14px;
-            height: 14px;
-            margin-left: 5px;
-            margin-bottom: 4px;
-            border-radius: 50%;
-            background: #3a3f4b;
-            color: #c9cdd6;
-            font-size: 10px;
-            font-weight: 700;
-            cursor: help;
-            position: relative;      /* 给气泡当定位父级 */
-            vertical-align: middle;
-        }
-        
-        /* ★只有开了排序（html有.sort-enabled）时，问号才显示 */
-        .sort-enabled .help-icon {
-            display: inline-flex;
-        }
-
-        /* 气泡本体（用 data-tip 的内容自动填充） */
-        .help-icon::after {
-            content: attr(data-tip);
-            position: absolute;
-            bottom: 150%;                 /* 显示在问号上方 */
-            left: 50%;
-            transform: translateX(-50%);
-            background: #22262e;
-            color: #e4e6eb;
-            font-size: 12px;
-            font-weight: 400;
-            line-height: 1.5;
-            padding: 6px 10px;
-            border-radius: 6px;
-            white-space: normal;
-            width: max-content;
-            max-width: 260px;              /* 文字长也不怕超出 */
-            box-shadow: 0 4px 12px rgba(0,0,0,.35);
-            opacity: 0;
-            visibility: hidden;
-            transition: opacity .15s ease, visibility .15s ease;
-            pointer-events: none;          /* 气泡不挡鼠标事件 */
-            z-index: 999;
-        }
-
-        /* 鼠标移上去显示 */
-        .help-icon:hover::after,
-        .help-icon:hover::before {
-            opacity: 1;
-            visibility: visible;
-        }
-        
-        /* ========== 14. 刷新倒计时，小圆环动画 ========== */
-        /* 倒计时样式 */
-        .refresh-countdown {
-            position: relative;
-            width: 28px;
-            height: 28px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            pointer-events: none;
-            opacity: 0.8;
-            vertical-align: middle;
-            --duration: 5s;/* 默认5秒，使用 style="--duration: 10s 覆盖默认设置 */
-        }
-        .refresh-countdown-svg {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            transform: rotate(-90deg);
-        }
-        .refresh-ring-bg {
-            fill: none;
-            stroke: rgba(0,0,0,0.1);
-            stroke-width: 3;
-        }
-        .refresh-ring-progress {
-            fill: none;
-            stroke: #3b82f6;
-            stroke-width: 3;
-            stroke-linecap: round;
-            stroke-dasharray: 88;
-            stroke-dashoffset: 0;
-            /* ★ 核心：时长用CSS变量，改 --duration 就改了动画时长，infinite自动无限循环 */
-            animation: ringCountdown var(--duration) linear infinite;
-        }
-        
-        [data-theme="dark"] .refresh-ring-bg { stroke: rgba(255,255,255,0.15); }
-        
-        @keyframes ringCountdown {
-            from { stroke-dashoffset: 0; }
-            to { stroke-dashoffset: 88; }
-        }
-        
-        /* ========== 15. 响应式 ========== */
-        @media (max-width: 1300px) {
-            .server-container { grid-template-columns: repeat(2, 1fr); }
-        }
-        @media (max-width: 768px) {
-            .server-container { grid-template-columns: 1fr; }
-            body { padding: 12px; }
-            .server-stats { flex-wrap: wrap; gap: 4px; }
-            .server-stat-item span { font-size: 14px; font-weight: 400; }
-        }
-
-        /* ========== 减少动效适配 ========== */
-        @media (prefers-reduced-motion: reduce) {
-            * { transition: none !important; animation-duration: 0.01ms !important; }
-        }
-        
     </style>
 </head>
 <body>
     <div class="page-header">
-        <h1>🚀 分布式 Supervisor 进程监控（RPC版）</h1>
-        <button class="theme-toggle" id="themeToggle">☀ 白天</button>
+        <div class="left-group">
+          <h1>🚀 分布式 Supervisor 进程监控（RPC版）</h1>
+        </div>
+        <div class="header-actions">
+          <button id="sortToggleBtn" class="layout-toggle">
+              <span id="sortBtnLabel">⇕ 默认排序</span>
+              <span class="help-icon" data-tip="状态排序：抖动、异常、停止的程序置顶。">?</span>
+          </button>
+          <button id="masonryToggleBtn" class="layout-toggle">📐 对齐网格</button>
+          <button class="layout-toggle" id="themeToggle">☀ 白天</button>
+        </div>
     </div>
 
-    <!-- ========== 【100%保留】顶部全局统计条 ========== -->
+    <!-- ========== 顶部全局统计条 ========== -->
     <div class="overview">
-        <div class="stat-item">
-            <span class="stat-icon stat-value black">🖥️</span>
-            <span class="stat-label">总节点</span>
-            <span class="stat-value black" id="stat-total-nodes">0</span>
-        </div>
-        <div class="stat-item">
-            <span class="stat-icon stat-value green">●</span>
-            <span class="stat-label">在线节点</span>
-            <span class="stat-value green" id="stat-online-nodes">0</span>
-        </div>
-        <div class="stat-item">
-            <span class="stat-icon stat-value blue">⚙</span>
-            <span class="stat-label">进程总数</span>
-            <span class="stat-value blue" id="stat-total-procs">0</span>
-        </div>
-        <div class="stat-item">
-            <span class="stat-icon stat-value green">►</span>
-            <span class="stat-label">运行中</span>
-            <span class="stat-value green" id="stat-running-procs">0</span>
-        </div>
-        <div class="stat-item">
-            <span class="stat-icon stat-value gray">■</span>
-            <span class="stat-label">已终止</span>
-            <span class="stat-value gray" id="stat-stopped-procs">0</span>
-        </div>
-        <div class="stat-item">
-            <span class="stat-icon stat-value red">✖</span>
-            <span class="stat-label">启动失败</span>
-            <span class="stat-value red" id="stat-error-procs">0</span>
-        </div>
-        <div class="stat-item">
-            <span class="stat-icon stat-value orange">⚡</span>
-            <span class="stat-label">抖动进程</span>
-            <span class="stat-value orange" id="stat-flapping-procs">0</span>
-        </div>
-        <button id="sortToggleBtn" class="btn">
-            <span id="sortBtnLabel">⇅ 默认排序</span>
-            <span class="help-icon" data-tip="状态排序：抖动、异常、停止的程序置顶。">?</span>
-        </button>
-        
+    
+    <div class="stat-item stat-filter" data-filter="ALL_NODES">
+      <span class="stat-icon stat-value black">🖥️</span>
+      <span class="stat-label">总节点</span>
+      <span class="stat-value black" id="stat-total-nodes">0</span>
     </div>
-
-    <div class="server-container">
-    {% for sn, info in sdict.items() %}
-        <div class="server-block" data-server="{{ sn }}">
-            <div class="server-header">
-                <h3>
-                    {% set processes = funAllInfo(sn) %}
-                    <span class="server-status-dot {% if processes %}connected{% else %}error{% endif %}"></span>
-                    {{ info.nodename }}
-                    <span class="ip">{{ info.ip }}:{{ info.port }}</span>
-                    <!-- 自动刷新倒计时小圆环 -->
-                    <div id="refresh-{{ info.ip }}">
-                        <div class="refresh-countdown" style="">
-                            <svg class="refresh-countdown-svg" viewBox="0 0 36 36">
-                                <circle class="refresh-ring-bg" cx="18" cy="18" r="14"/>
-                                <circle class="refresh-ring-progress" cx="18" cy="18" r="14"/>
-                            </svg>
-                        </div>
-                    </div>
-                </h3>
-                <a href="{{ url_for('restartSupervisor', node=sn) }}" class="btn btn-restart-supervisor" data-action="restart-supervisor">⚠ 重启 Supervisor</a>
-            </div>
-            
-            {% if not processes %}
-                <ul class="process-list">
-                  <p class="error-tip">⚠ 服务器连接失败</p>
-                </ul>
-            {% else %}
-                <!-- ========== 单节点统计条 ========== -->
-                <div class="server-stats" id="node-stats-{{ sn }}">
-                    <div class="server-stat-item">
-                        <span class="stat-label">进程</span>
-                        <span class="stat-value blue node-total">0</span>
-                    </div>
-                    <div class="server-stat-item">
-                        <span class="stat-label">运行</span>
-                        <span class="stat-value green node-running">0</span>
-                    </div>
-                    <div class="server-stat-item">
-                        <span class="stat-label">停止</span>
-                        <span class="stat-value gray node-stopped">0</span>
-                    </div>
-                    <div class="server-stat-item">
-                        <span class="stat-label">异常</span>
-                        <span class="stat-value red node-error">0</span>
-                    </div>
-                    <div class="server-stat-item">
-                        <span class="stat-label">抖动</span>
-                        <span class="stat-value orange node-flapping">0</span>
-                    </div>
-                    <button class="btn btn-refresh-node" data-action="refresh-node" title="刷新当前节点">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-bottom:2px;">
-                            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
-                        </svg>
-                        刷新
-                    </button>
-                </div>
-                
-                <div class="server-actions">
-                    <a href="{{ url_for('index_one', method='supervisor.startAllProcesses', name='', node=sn) }}" class="btn btn-start-all" data-action="start-all">全部启动</a>
-                    <a href="{{ url_for('index_one', method='supervisor.stopAllProcesses', name='', node=sn) }}" class="btn btn-stop-all" data-action="stop-all">全部停止</a>
-                    <a href="{{ url_for('index_restartAll', node=sn) }}" class="btn btn-restart-all" data-action="restart-all">全部重启</a>
-                    
-                </div>
-                
-                <!-- 未分组进程 -->
-                <ul class="process-list">
-                {% for proc in processes["ungrouped"] %}
-                  <!-- {% if proc.is_flapping %}{% print( proc ) %}{% endif %} -->
-                    <li class="process-item {% if proc.is_flapping %}flapping{% else %}{{ proc.statename }}{% endif %}" data-proc="{{ proc.name }}" data-node="{{ sn }}"  data-statename="{{ proc.statename }}">
-                        <div class="process-top">
-                            <div class="process-info">
-                                <span class="proc-name">{{ proc.name }}</span>
-                                <span class="proc-status status-{{ proc.statename | lower }}">{{ proc.statename }}</span>
-                            </div>
-                            
-                        </div>
-                        <div class="process-bottom">
-                            
-                            {% if proc.is_flapping %}
-                              <span class="proc-desc" title="{{ proc.state_tip }}">{{ proc.state_tip }}</span>
-                              <button class="ack-btn-inline">✓ 确认已处理</button>
-                            {% else %}
-                              <span class="proc-desc">{{ proc.description | default('--', boolean=True) }}</span>
-                              
-                            {% endif %}
-                            
-                            <!-- 按钮 -->
-                            <div class="process-ops">
-                              {% set st = proc.statename|upper %}
-                              
-                              {# 因为抖动而被停止的进程：禁用【启动】按钮，需要点击“确认已处理”按钮去激活 #}
-                              {% if proc.is_flapping %}
-                                <a href="{{ url_for('index_one', method='supervisor.startProcess', name=proc.name, node=sn) }}" class="btn btn-start disabled" data-action="start">启动</a>
-                              
-                              {# 停止/退出状态：只显示【启动】按钮 #}
-                              {% elif st in ['STOPPED', 'EXITED', 'FATAL', 'BACKOFF'] %}
-                                <a href="{{ url_for('index_one', method='supervisor.startProcess', name=proc.name, node=sn) }}" class="btn btn-start" data-action="start">启动</a>
-                              
-                              {# 运行状态：显示【停止】【重启】，隐藏启动按钮 #}
-                              {% elif st == 'RUNNING' %}
-                                <a href="{{ url_for('index_one', method='supervisor.stopProcess', name=proc.name, node=sn) }}" class="btn btn-stop" data-action="stop">停止</a>
-                                <a href="{{ url_for('index_restartOne', name=proc.name, node=sn) }}" class="btn btn-restart" data-action="restart">重启</a>
-                              
-                              {# 中间状态（启动中/停止中）：按钮全部禁用，防止误操作 #}
-                              {% else %}
-                                <a href="" class="btn btn-start disabled">启动</a>
-                                <a href="" class="btn btn-stop disabled">停止</a>
-                                <a href="" class="btn btn-restart disabled">重启</a>
-                              {% endif %}
-                            </div>
-                            
-                        </div>
-                    </li>
-                <!-- 未分组进程结束 -->
-                {% endfor %}
-                </ul>
-                
-                <!-- 分组进程 -->
-                {% for proc in processes["groups"] %}
-                <div class="group-card" data-group="{{ proc.group_name }}">
-                    <div class="group-header-bar" onclick="toggleGroup(this)">
-                        <div class="group-title">
-                            <span class="fold-icon collapsed">▼</span>
-                            📁 {{ proc.group_name }}
-                        </div>
-                        <div class="process-ops">
-                            <a href="{{ url_for('index_one', method='supervisor.startProcessGroup', name=proc.group_name, node=sn) }}" class="btn btn-start" data-action="start-group" onclick="event.stopPropagation()">启动组</a>
-                            <a href="{{ url_for('index_one', method='supervisor.stopProcessGroup', name=proc.group_name, node=sn) }}" class="btn btn-stop" data-action="stop-group" onclick="event.stopPropagation()">停止组</a>
-                            <a href="{{ url_for('index_restartGroup', name=proc.group_name, node=sn) }}" class="btn btn-restart" data-action="restart-group" onclick="event.stopPropagation()">组重启</a>
-                        </div>
-                    </div>
-                    <div class="group-process-container hidden">
-                        <ul class="process-list">
-                        {% for sub_proc in proc.processes %}
-                            {# 组名:程序名，中间用冒号在模板中使用 ~ 连接 #}
-                            {% set full_name = sub_proc.group ~ ':' ~ sub_proc.name %}
-                            <li class="process-item {% if sub_proc.is_flapping %}flapping{% else %}{{ sub_proc.statename }}{% endif %}" data-proc="{{ full_name }}" data-node="{{ sn }}"  data-statename="{{ sub_proc.statename }}">
-                                <div class="process-top">
-                                    <div class="process-info">
-                                        <span class="proc-name">{{ sub_proc.name }}</span>
-                                        <span class="proc-status status-{{ sub_proc.statename | lower }}">{{ sub_proc.statename }}</span>
-                                    </div>
-                                    
-                                </div>
-                                <div class="process-bottom">
-                                    
-                                    {% if sub_proc.is_flapping %}
-                                      <span class="proc-desc" title="{{ sub_proc.state_tip }}" title="{{ sub_proc.state_tip }}">{{ sub_proc.state_tip }}</span>
-                                      <button class="ack-btn-inline">✓ 确认已处理</button>
-                                    {% else %}
-                                      <span class="proc-desc">{{ sub_proc.description | default('--', boolean=True) }}</span>
-                                      
-                                    {% endif %}
-                                    
-                                    <!-- 按钮 -->
-                                    <div class="process-ops">
-                                      
-                                      {% set sub_st = sub_proc.statename|upper %}
-                                      
-                                      {# 因为抖动而被停止的进程：禁用【启动】按钮，需要点击“确认已处理”按钮去激活 #}
-                                      {% if sub_proc.is_flapping %}
-                                        
-                                        <a href="{{ url_for('index_one', method='supervisor.startProcess', name=full_name, node=sn) }}" class="btn btn-start disabled" data-action="start">启动</a>
-                                      {# 停止/退出状态：只显示启动 #}
-                                      {% elif sub_st in ['STOPPED', 'EXITED', 'FATAL', 'BACKOFF'] %}
-                                        <a href="{{ url_for('index_one', method='supervisor.startProcess', name=full_name, node=sn) }}" class="btn btn-start" data-action="start">启动</a>
-                                      
-                                      {# 组内子进程：运行状态显示停止+重启 #}
-                                      {% elif sub_st == 'RUNNING' %}
-                                        <a href="{{ url_for('index_one', method='supervisor.stopProcess', name=full_name, node=sn) }}" class="btn btn-stop" data-action="stop">停止</a>
-                                        <a href="{{ url_for('index_restartOne', name=full_name, node=sn) }}" class="btn btn-restart" data-action="restart">重启</a>
-                                      
-                                      {# 启动中/停止中：按钮全部禁用，防止重复点击 #}
-                                      {% else %}
-                                        <a href="" class="btn btn-start disabled">启动</a>
-                                        <a href="" class="btn btn-stop disabled">停止</a>
-                                        <a href="" class="btn btn-restart disabled">重启</a>
-                                      {% endif %}
-                                    </div>
-                                    
-                                </div>
-                            </li>
-                        {% endfor %}
-                        </ul>
-                    </div>
-                </div>
-                <!-- 分组进程结束 -->
-                {% endfor %}
-                
-            {% endif %}
+    
+    <div class="stat-item stat-filter" data-filter="ONLINE_NODES">
+      <span class="stat-icon stat-value green">●</span>
+      <span class="stat-label">在线节点</span>
+      <span class="stat-value green" id="stat-online-nodes">0</span>
+    </div>
+    
+    <div class="stat-item stat-filter" data-filter="OFFLINE_NODE">
+      <span class="stat-icon stat-value red">✖</span>
+      <span class="stat-label">离线节点</span>
+      <span class="stat-value red" id="stat-offline-nodes">0</span>
+    </div>
+    
+    <div class="stat-item stat-filter" data-filter="ALL_PROCS">
+      <span class="stat-icon stat-value blue">⚙</span>
+      <span class="stat-label">进程总数</span>
+      <span class="stat-value blue" id="stat-total-procs">0</span>
+    </div>
+    
+    <div class="stat-item stat-filter" data-filter="RUNNING">
+      <span class="stat-icon stat-value green">►</span>
+      <span class="stat-label">运行中</span>
+      <span class="stat-value green" id="stat-running-procs">0</span>
+    </div>
+    <div class="stat-item stat-filter" data-filter="STOPPED">
+      <span class="stat-icon stat-value gray">■</span>
+      <span class="stat-label">已终止</span>
+      <span class="stat-value gray" id="stat-dead-procs">0</span>
+    </div>
+    <div class="stat-item stat-filter" data-filter="FATAL">
+      <span class="stat-icon stat-value red">✖</span>
+      <span class="stat-label">启动失败</span>
+      <span class="stat-value red" id="stat-error-procs">0</span>
+    </div>
+    <div class="stat-item stat-filter" data-filter="FLAPPING">
+      <span class="stat-icon stat-value orange">⚡</span>
+      <span class="stat-label">抖动进程</span>
+      <span class="stat-value orange" id="stat-flapping-procs">0</span>
+    </div>
+    
+  </div>
+    
+    <div class="server-container" id="dashboard">
+    {% if sn and sdict.get(sn) %}
+      {% set info = sdict.get(sn) %}
+      <div class="server-block" data-server="{{ sn }}" data-nodename="{{info.nodename}}">
+          {% include '_node.html' %}
+      </div>
+    {% else %}
+        {% for sn, info in sdict.items() %}
+        <div class="server-block" data-server="{{ sn }}" data-nodename="{{info.nodename}}">
+            {% include '_node.html' %}
         </div>
-    {% endfor %}
+        {% endfor %}
+    {% endif %}
     </div>
 
     <!-- 操作提示 -->
     <div class="toast" id="toast"></div>
 
 <script>
-    let REFRESH_INTERVAL = 10000;// 自动刷新间隔，默认10秒
+    
+    /**
+     ** 单节点详情页面配置
+     */
+    let singleNode = false;
+    
+    // js 获取当前浏览器参数 ?node=192.168.1.121:8000
+    const p = new URLSearchParams(location.search);
+    const node = p.get('node');
+    console.log("url参数：");
+    console.log(node);
+    
+    if(node){
+      singleNode = true;
+      localStorage.setItem('masonryEnabled', false);//单节点详情页面模式，禁用瀑布流样式
+    }
+    /**单节点详情页面配置 结束*/
+    
+    
+    // 自动刷新间隔，默认10秒
+    const REFRESH_INTERVAL = 10000;
+    
+    // 记录用户正在交互/悬停/滚动的节点，自动刷新时跳过
+    const ACTIVE_NODES = new Set();
+    
+    // ========== 刷新用的节点级锁：防止手动刷新 / 自动刷新互相叠加 ==========
+    const REFRESHING = new Set();
     
     // ========== 主题切换（初始化已经在head最顶部执行，这里只绑定按钮） ==========
+    // ✅ 修复闪黑：页面最顶部执行主题初始化，渲染前就设置主题
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    // 首屏禁用过渡，避免闪烁
+    document.documentElement.classList.add('no-transitions');
+    
     const toggleBtn = document.getElementById('themeToggle');
     function updateThemeBtn(theme) {
-        toggleBtn.textContent = theme === 'dark' ? '☀️ 白天' : '🌙 夜晚';
+        toggleBtn.textContent = theme === 'dark' ? '🌙 夜晚' : '☀️ 白天';
     }
     updateThemeBtn(savedTheme);
     toggleBtn.addEventListener('click', () => {
@@ -832,6 +177,7 @@
         const servers = document.querySelectorAll('.server-block');
         let totalNodes = servers.length;
         let onlineNodes = 0;
+        let offlineNodes = 0;
         let gTotal = 0, gRunning = 0, gStopped = 0, gError = 0, gFlapping = 0;
         
         //设置倒计时圆环动画时长
@@ -841,6 +187,7 @@
             
             const hasError = server.querySelector('.error-tip');
             if (!hasError) onlineNodes++;
+            if (hasError) offlineNodes++;
             
             const stats = countServerStats(server);
             gTotal    += stats.total;
@@ -865,19 +212,90 @@
         // 更新全局统计
         document.getElementById('stat-total-nodes').textContent    = totalNodes;
         document.getElementById('stat-online-nodes').textContent   = onlineNodes;
+        document.getElementById('stat-offline-nodes').textContent   = offlineNodes;
         document.getElementById('stat-total-procs').textContent    = gTotal;
         document.getElementById('stat-running-procs').textContent  = gRunning;
-        document.getElementById('stat-stopped-procs').textContent  = gStopped;
+        document.getElementById('stat-dead-procs').textContent     = gStopped;
         document.getElementById('stat-error-procs').textContent    = gError;
         document.getElementById('stat-flapping-procs').textContent = gFlapping;
         
+        // 单节点详情页面不侦听节点交互
+        if(!singleNode){
+          rebindHover();
+        }
+        
+        // 筛选功能：每次更新后自动应用筛选
+        applyFilter();
+        
+        /**
+         ** 单节点详情页面样式 
+         */
+        if (singleNode){
+            
+            // 修改单节点详情页标题
+            const baseTitle = document.title; // 只在开头存一次
+            const serverBlockEl = document.querySelector('.server-block');
+            document.title = serverBlockEl.dataset.nodename + " - " + baseTitle;
+            
+            //设置节点卡片的样式，原有样式是自动列数，这里需要其宽度最大化
+            const dashboardList = document.querySelector('.server-container');
+            dashboardList.style.cssText = `
+                grid-template-columns: none;
+            `;
+            
+            // 单节点详情页，显示节点全局操作命令，全部启动、全部停止等按钮
+            const actionsList = document.querySelector('.server-actions');
+            actionsList.style.cssText = `
+                display: "";
+            `;
+            
+            /*设置进程列表新样式，使其符合单节点详情页的要求*/
+            const procList = document.querySelector('.process-list');
+            procList.style.cssText = `
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+                gap: 0 10px;
+                align-items: start;
+                max-height: 550px;
+            `;
+            
+            // 单节点详情页，不需要全局数据条
+            const overviewList = document.querySelector('.overview');
+            overviewList.style.cssText = `
+                display: none;
+            `;
+            
+            // 单节点详情页，不需要瀑布流按钮
+            const masonryList = document.getElementById('masonryToggleBtn');
+            masonryList.style.cssText = `
+                display: none;
+            `;
+            
+            /* 修改单节点详情页，返回监控总览按钮*/
+            const pageTitle = document.querySelector('.left-group');
+            if (!pageTitle) return; // 找不到元素直接退出，不报错
+            pageTitle.innerHTML = `
+                <a href="{{ url_for('index') }}" class="back-link">← 返回监控总览</a>
+                
+            `;
+            
+        }
+      
     }
 
 
-    // 新增：记录用户正在交互/悬停/滚动的节点，自动刷新时跳过
-    const ACTIVE_NODES = new Set();
-    
-    // === 仅刷新单个节点（加silent参数：true=静默自动刷新，false=手动刷新带蒙版） ===
+    // 只取"当前单节点"的 HTML
+    async function fetchNodeHtml(sn) {
+        const res = await fetch(`/api/node/${encodeURIComponent(sn)}`, { cache: 'no-cache' });
+        if (res.ok) {
+            return await res.text();
+        } else {
+            throw new Error('HTTP ' + res.status);
+        }
+    }
+
+
+    // === 仅刷新单个节点（silent=true 静默自动刷新；false 手动刷新带蒙版） ===
     async function refreshSingleServer(serverEl, silent = false) {
         
         const sn = serverEl.dataset.server;
@@ -887,9 +305,14 @@
         if (silent && ACTIVE_NODES.has(sn)) {
             return;
         }
-        
+        // 同一节点已有刷新在跑 → 跳过本次，杜绝请求叠加
+        if (REFRESHING.has(sn)) {
+            return;
+        }
+        REFRESHING.add(sn);
+
         // ========== 刷新前：只记节点内部状态 ==========
-        // 1. 折叠状态，刷新前，记录每个分组的折叠状态（true=折叠，false=展开）
+        // 1. 记录每个分组的折叠状态（true=折叠，false=展开）
         const foldStates = [];
         serverEl.querySelectorAll('[onclick*="toggleGroup"]').forEach(h => {
             const container = h.nextElementSibling;
@@ -897,6 +320,7 @@
         });
         // 2. 记录滚动位置（serverEl 自身 + 内部所有元素，按顺序存）
         const scrollStates = [serverEl.scrollTop];
+        
         serverEl.querySelectorAll('*').forEach(el => {
             scrollStates.push(el.scrollTop);
         });
@@ -906,83 +330,69 @@
             if (refreshBtn) refreshBtn.classList.add('loading');
             serverEl.classList.add('loading');
         }
-        
+
         try {
-            const res = await fetch(window.location.href, { cache: 'no-cache' });
-            const text = await res.text();
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(text, 'text/html');
-            const newServer = doc.querySelector(`.server-block[data-server="${sn}"]`);
-            
-            if (newServer) {
-                // 双帧原子更新，浏览器看不到中间态
+            const html = await fetchNodeHtml(sn);   // 单节点html
+
+            // 双帧原子更新，浏览器看不到中间态
+            requestAnimationFrame(() => {
+                serverEl.innerHTML = html;
+
+                // 恢复折叠状态
+                serverEl.querySelectorAll('[onclick*="toggleGroup"]').forEach((h, i) => {
+                    const container = h.nextElementSibling;
+                    const foldIcon = h.querySelector('.fold-icon');
+                    if (!container || foldStates[i] === null || foldStates[i] === undefined) return;
+                    if (foldStates[i]) {
+                        container.classList.add('hidden');
+                        if (foldIcon) foldIcon.classList.add('collapsed');
+                    } else {
+                        container.classList.remove('hidden');
+                        if (foldIcon) foldIcon.classList.remove('collapsed');
+                    }
+                });
+
+                // 第二帧恢复节点内部滚动条
                 requestAnimationFrame(() => {
-                    serverEl.innerHTML = newServer.innerHTML;
                     
-                    // 恢复折叠状态
-                    serverEl.querySelectorAll('[onclick*="toggleGroup"]').forEach((h, i) => {
-                        const container = h.nextElementSibling;
-                        const foldIcon = h.querySelector('.fold-icon');
-                        if (!container || foldStates[i] === null || foldStates[i] === undefined) return;
-                        if (foldStates[i]) {
-                            // 原来是折叠的，保持折叠
-                            container.classList.add('hidden');
-                            if (foldIcon) foldIcon.classList.add('collapsed');
-                        } else {
-                            // 原来是展开的，保持展开
-                            container.classList.remove('hidden');
-                            if (foldIcon) foldIcon.classList.remove('collapsed');
+                    serverEl.scrollTop = scrollStates[0];
+                    const newEls = serverEl.querySelectorAll('*');
+                    newEls.forEach((el, i) => {
+                        if (scrollStates[i + 1] !== undefined) {
+                            el.scrollTop = scrollStates[i + 1];
                         }
                     });
                     
-                    // 第二帧恢复节点内部滚动条
-                    requestAnimationFrame(() => {
-                        serverEl.scrollTop = scrollStates[0];
-                        const newEls = serverEl.querySelectorAll('*');
-                        newEls.forEach((el, i) => {
-                            if (scrollStates[i + 1] !== undefined) {
-                                el.scrollTop = scrollStates[i + 1];
-                            }
-                        });
-                        
-                        updateAllStats();
-                    });
+                    updateAllStats();
+                    
                 });
-                // 手动刷新才弹成功提示，自动静默不弹
-                if (!silent) showToast('节点刷新成功', 'success');
-            }
+            });
+            // 手动刷新才弹成功提示，自动静默不弹
+            if (!silent) showToast('节点刷新成功', 'success');
         } catch (err) {
             console.error('刷新节点失败:', err);
             // 手动刷新才弹错误提示，自动静默只打控制台不打扰
             if (!silent) showToast('刷新失败，请检查连接', 'error');
-            
         } finally {
+            REFRESHING.delete(sn);
             if (!silent) {
                 // 手动刷新才移除loading状态
                 serverEl.classList.remove('loading');
                 if (refreshBtn) refreshBtn.classList.remove('loading');
             }
+            
         }
     }
 
-
-    // === 新增：静默自动刷新所有节点 ===
-    // 调用方法 setInterval(autoRefreshAll, 3000); 间隔毫秒数：3000=3秒
+    // === 自动刷新所有节点（★ 并发进行：一个节点连不上，不再拖住其他节点） ===
     async function autoRefreshAll() {
         
-        const allServers = document.querySelectorAll('.server-block');
-        // 逐个节点刷新，一个刷完再刷下一个，不并发卡页面
-        for (const serverEl of allServers) {
-            
-            // 如果节点正在手动刷新（有loading类），跳过本次，不冲突
-            if (serverEl.classList.contains('loading')) continue;
-            try {
-                await refreshSingleServer(serverEl, true); // true=静默模式，无任何UI提示
-                
-            } catch (e) {
-                console.warn('自动刷新节点失败:', serverEl.dataset.server, e);
-            }
-        }
+        const allServers = Array.from(document.querySelectorAll('.server-block'));
+        await Promise.allSettled(
+            allServers
+                .filter(serverEl => !serverEl.classList.contains('loading'))
+                .map(serverEl => refreshSingleServer(serverEl, true))   // true=静默模式，无任何UI提示
+        );
         
     }
 
@@ -1025,9 +435,17 @@
         const serverEl = btn.closest('.server-block');
         const isRestartSupervisor = btn.dataset.action === 'restart-supervisor';
         
+        // 点击“重启Supervisor”按钮，弹出提示
+        if (isRestartSupervisor){
+          if (!confirm('⚠️ 危险操作！\n\n重启Supervisor会导致该节点所有被管理进程短暂中断，Supervisor重启后会自动拉起进程。\n\n是否确认继续？')) {
+              return;
+          }
+        }
+        
+        serverEl.classList.add('loading');
         btn.classList.add('loading');
         btn.disabled = true;
-
+        
         try {
             const res = await fetch(url, {
                 method: 'GET',
@@ -1036,7 +454,7 @@
 
             if (res.ok) {
                 showToast('操作执行成功', 'success');
-                // 重启Supervisor等3秒，其他操作等1000ms，只刷新当前节点
+                // 重启Supervisor延迟3秒，其他操作延迟1秒，移除蒙版
                 const delay = isRestartSupervisor ? 3000 : 1000;
                 setTimeout(() => refreshSingleServer(serverEl).then(() => {
                     btn.classList.remove('loading');
@@ -1064,17 +482,19 @@
         const label = document.getElementById('sortBtnLabel');
         if (sortEnabled) {
             document.documentElement.classList.add('sort-enabled');// 加类，排序生效
-            label.textContent = '▼ 状态排序';
+            label.textContent = '⇓ 状态排序';
+            //label.textContent = '⇑ 状态排序';
         } else {
             document.documentElement.classList.remove('sort-enabled');// 删类，恢复默认顺序
-            label.textContent = '⇅ 默认排序';
+            label.textContent = '⇕ 默认排序';
+            //label.textContent = '⇅ 默认排序';
         }
     }
     
-    // 初始化按钮状态
+    // 初始化排序按钮状态
     updateSortBtn();
     
-    // 点击切换
+    // 点击排序按钮,切换排序类型
     sortBtn.addEventListener('click', () => {
         sortEnabled = !sortEnabled;
         localStorage.setItem('sortEnabled', sortEnabled);
@@ -1082,7 +502,7 @@
     });
 
 
-    /********* 倒计时圆环动画 *********/
+    /********* 倒计时圆环动画（仅动画，无js逻辑）*********/
     function setRingAnimation(countdownSeconds) {
         //添加属性，更改倒计时动画时长
         //const countdownEl = server.querySelector('.refresh-countdown');
@@ -1092,31 +512,226 @@
         //<div class="refresh-countdown" style="--duration: 10000ms;"><div>
         document.querySelectorAll('.refresh-countdown').forEach(countdownEl => {
             countdownEl.style.setProperty('--duration', `${countdownSeconds}ms`);
+            //countdownEl.style.setProperty('--duration', "0ms");//时长为0时，圆环充满
         })
     }
     
+    
+    /**
+     * 判断元素是否出现了垂直滚动条
+     * @param {HTMLElement} el 要检测的DOM元素
+     * @returns {boolean} true=有垂直滚动条，false=没有
+     */
+    function hasVerticalScrollbar(el) {
+      if (!el) return false;
+      // 元素隐藏时clientHeight为0，检测不准直接返回false
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') return false;
+      //  overflow设置为hidden时，即使内容超出也不会显示滚动条
+      if (style.overflowY === 'hidden' || style.overflowY === 'visible') return false;
+      // 核心判断：内容总高度 > 可视高度 = 出现滚动条
+      return el.scrollHeight > el.clientHeight + 1; // +1是为了兼容小数像素误差
+    }
+
+    
+    function rebindHover() {
+        // ========== 监听节点交互，用户正在操作/悬停/滚动时不自动刷新 ==========
+        document.querySelectorAll('.server-block').forEach(serverEl => {
+            let isVerticalScroll;
+            const processEl = serverEl.querySelector('.process-list');
+            
+            const sn = serverEl.dataset.server;
+            
+            // 鼠标悬停在该节点上 = 正在看，跳过自动刷新
+            serverEl.addEventListener('mouseenter', () => {
+              
+              console.log("鼠标进入："+sn);
+              
+              isVerticalScroll= hasVerticalScrollbar(processEl);//检测进程列表有没有垂直滚动条
+              console.log("垂直滚动条："+isVerticalScroll);
+              
+              //有垂直滚动条，停止后台自动刷新
+              if(isVerticalScroll){
+                  ACTIVE_NODES.add(sn);
+                  serverEl.classList.add('node-paused');     // 冻住圆环动画
+              }
+              
+            });
+            
+            // 鼠标离开该节点上 = 恢复自动刷新
+            serverEl.addEventListener('mouseleave', () => {
+              ACTIVE_NODES.delete(sn);
+              serverEl.classList.remove('node-paused');     // 恢复圆环动画
+              console.log("鼠标离开："+sn);
+            });
+            /* 
+            // 节点内部，正在滚动时禁用刷新，如果超过1秒不滚动则再次启动刷新
+            let scrollTimer;
+            serverEl.addEventListener('scroll', () => {
+                ACTIVE_NODES.add(sn);
+                serverEl.classList.add('node-paused');      // 冻住圆环动画
+                console.log("鼠标滚动："+sn);
+                clearTimeout(scrollTimer);
+                scrollTimer = setTimeout(() => {
+                  ACTIVE_NODES.delete(sn);
+                  serverEl.classList.remove('node-paused'); // 恢复圆环动画
+                  console.log("鼠标停止滚动："+sn);
+                }, 1000);
+                console.log("-----："+sn);
+            }, true);
+            */
+        });
+    }
+    
+    
+    /** ========== 全局状态筛选逻辑 ========== */
+    function hideParentIfAllLiHidden() {
+      /**
+       ** 当进程组标签 '.group-card' 下面的 li 标签 全部有 style="display: none;"，则此进程组标签也给加上 style="display: none;" 使其也隐藏了。
+      **/
+      
+      document.querySelectorAll('.group-card').forEach(div => {
+        // 找到进程组标签 '.group-card'下所有直接/间接的li标签
+        // 也就是进程标签 ".process-item"
+        // <li class="process-item RUNNING" data-proc="flask:1-flask_app80" data-node="192.168.1.121:8000" data-statename="RUNNING" style="display: none;">
+        const allLi = div.querySelectorAll('li');
+        if (allLi.length === 0) return; // 没有li，不做处理
+        
+        // 判断：是不是所有li都被设置了 display:none
+        const allLiHidden = Array.from(allLi).every(li => li.style.display === 'none');
+        
+        // 全部li都隐藏，就把父div也就是进程组隐藏；否则正常显示
+        div.style.display = allLiHidden ? 'none' : '';
+      });
+    }
+
+
+    let currentFilter = null;
+
+
+    // 执行筛选
+    function applyFilter() {
+      const grid = document.getElementById('dashboard');
+      if (!grid) return;
+      const cards = grid.querySelectorAll('.server-block');
+      cards.forEach(card => {
+        const serverKey = card.dataset.server;
+        const procList = card.querySelector(".process-list");
+        
+        if (!procList) return;
+        const isConnected = !procList.querySelector('.error-tip');
+        //const hasErrorTip = procList.querySelector('.error-tip') !== null;
+        const procs = procList.querySelectorAll('.process-item');
+        
+        let showCard = false;
+
+        if (!currentFilter) {
+          // 无筛选：全部显示，所有进程显示
+          showCard = true;
+          procs.forEach(p => p.style.display = '');
+          
+        }
+        // 节点级筛选
+        else if (currentFilter === 'ALL_NODES') {
+          showCard = true; // 总节点：所有节点都显示
+          procs.forEach(p => p.style.display = '');
+        }
+        else if (currentFilter === 'ONLINE_NODES') {
+          showCard = isConnected; // 在线节点：只显示连接成功的
+          procs.forEach(p => p.style.display = isConnected ? '' : 'none');
+        }
+        else if (currentFilter === 'OFFLINE_NODE') {
+          showCard = !isConnected; // 失败节点：只显示连接失败的
+          procs.forEach(p => p.style.display = 'none');
+        }
+        else if (currentFilter === 'ALL_PROCS') {
+          showCard = isConnected; // 总进程：显示所有在线节点，所有进程显示
+          procs.forEach(p => p.style.display = isConnected ? '' : 'none');
+        }
+        // 进程状态级筛选
+        else {
+          let visibleProcCount = 0;
+          if (!isConnected) {
+            // 连接失败的节点在进程筛选时不显示
+            showCard = false;
+          } else {
+            procs.forEach(procEl => {
+              let isMatch = false;
+              if (currentFilter === 'FLAPPING') {
+                isMatch = procEl.classList.contains('flapping');
+              } else if (currentFilter === 'STOPPED') {
+                isMatch = (procEl.classList.contains('STOPPED') || procEl.classList.contains('EXITED')) && !procEl.classList.contains('flapping');
+              } else if (currentFilter === 'FATAL') {
+                isMatch = procEl.classList.contains('FATAL') || procEl.classList.contains('BACKOFF');
+              } else if (currentFilter === 'RUNNING') {
+                isMatch = procEl.classList.contains('RUNNING');
+              }
+              procEl.style.display = isMatch ? '' : 'none';
+              
+              if (isMatch) visibleProcCount++;
+              
+            });
+            showCard = visibleProcCount > 0;
+          }
+        }
+        card.style.display = showCard ? '' : 'none';
+        
+      });
+      
+      // 用于进程组，如果没有进程组，可以省略
+      // 有时候进程组的进程都被过滤了，但是进程组标签还显示在那里
+      // 此函数就是解决这个问题的
+      hideParentIfAllLiHidden();
+      
+    }
+
+    // 给筛选按钮绑定事件
+    function initFilter() {
+      document.querySelectorAll('.stat-filter').forEach(btn => {
+        btn.style.cursor = 'pointer';
+        btn.addEventListener('click', () => {
+          const filter = btn.dataset.filter;
+          // 点同一个按钮取消筛选
+          currentFilter = (currentFilter === filter) ? null : filter;
+          // 更新按钮激活状态
+          document.querySelectorAll('.stat-filter').forEach(b => {
+            b.classList.toggle('active', b.dataset.filter === currentFilter);
+          });
+          // 执行筛选
+          applyFilter();
+        });
+      });
+    }
+
+
     // 页面加载完，执行更新所有统计，自动定时刷新等函数
     document.addEventListener('DOMContentLoaded', () => {
         // 页面加载完更新所有统计
         updateAllStats();
         
-        // ========== 新增：监听节点交互，用户正在操作/悬停/滚动时不自动刷新 ==========
-        document.querySelectorAll('.server-block').forEach(serverEl => {
-            const sn = serverEl.dataset.server;
-            // 鼠标悬停在该节点上 = 正在看，跳过自动刷新
-            serverEl.addEventListener('mouseenter', () => ACTIVE_NODES.add(sn));
-            serverEl.addEventListener('mouseleave', () => ACTIVE_NODES.delete(sn));
-            // 正在滚动该节点内部 = 正在操作，1秒后再刷
-            let scrollTimer;
-            serverEl.addEventListener('scroll', () => {
-                ACTIVE_NODES.add(sn);
-                clearTimeout(scrollTimer);
-                scrollTimer = setTimeout(() => ACTIVE_NODES.delete(sn), 1000);
-            });
-        });
+        // 单节点详情页面不侦听节点交互
+        if(!singleNode){
+          rebindHover();
+        }
         
-        // 页面加载完，自动定时刷新
-        setInterval(autoRefreshAll, REFRESH_INTERVAL);
+        // 初始化筛选按钮
+        initFilter();
+        
+        
+        // 页面加载完，自动定时刷新（★ 上一次彻底跑完才排下一次，杜绝请求堆积）
+        async function autoLoop() {
+            
+            try {
+                await autoRefreshAll();
+            } catch (e) {
+                console.warn('自动刷新异常:', e);
+            } finally {
+                setTimeout(autoLoop, REFRESH_INTERVAL);
+            }
+            
+        }
+        // 开启定时后台刷新
+        setTimeout(autoLoop, REFRESH_INTERVAL);
         
     });
 
@@ -1151,9 +766,37 @@
           a.classList.remove('disabled');
       });
       
-      ackBtn.remove() // 删按钮
+      ackBtn.remove() // 删“确认已处理”按钮
       
     })
+    
+    /* ==============================================
+       ===== 瀑布流新增 开始：布局切换逻辑，和主题/排序逻辑风格一致 =====
+       ============================================== */
+    const layoutBtn = document.getElementById('masonryToggleBtn');
+    const gridContainer = document.querySelector('.server-container');
+    // 页面加载时读本地存储，默认网格模式
+    let masonryEnabled = localStorage.getItem('masonryEnabled') === 'true';
+
+    function updateLayoutBtn() {
+        if (masonryEnabled) {
+            gridContainer.classList.add('masonry'); // 加类，瀑布流生效
+            layoutBtn.textContent = '🌊 瀑布流';
+        } else {
+            gridContainer.classList.remove('masonry'); // 删类，恢复原网格
+            layoutBtn.textContent = '📐 对齐网格';
+        }
+    }
+    // 初始化布局状态
+    updateLayoutBtn();
+
+    // 点击切换
+    layoutBtn.addEventListener('click', () => {
+        masonryEnabled = !masonryEnabled;
+        localStorage.setItem('masonryEnabled', masonryEnabled);
+        updateLayoutBtn();
+    });
+    /* ===== 瀑布流新增 结束 ===== */
 
 
 </script>
