@@ -19,6 +19,7 @@ import logging
 from collections import defaultdict
 from xmlrpc.client import ServerProxy, Fault
 import websockets
+import traceback
 
 # ---------- 日志（输出到 stderr，避免污染 stdout 的事件协议） ----------
 logging.basicConfig(
@@ -28,47 +29,35 @@ logging.basicConfig(
 )
 logger = logging.getLogger("listener")
 
-# ---------- 全局配置 ----------
+# ---------- websockets 配置 ----------
 WS_CLIENTS = set()
 WS_HOST    = "0.0.0.0"
 WS_PORT    = 8765
 
-HTTP_PORT = 8000
-USER      = "admin"
-PASSWD    = "admin"
-
-# ★ 你的 XML-RPC 地址（带用户名密码），按需修改
+# ---------- RPC 配置 ----------
+HTTP_PORT = 8000    # supervisor 配置的端口
+USER      = "admin" # supervisor 配置的用户
+PASSWD    = "admin" # supervisor 配置的密码
 SUPERVISOR_RPC_URL = f"http://{USER}:{PASSWD}@localhost:{HTTP_PORT}/RPC2"
 
-# 抖动循环检测阈值
+# ---------- 进程抖动检测 配置 ----------
 CRASH_WINDOW_SECONDS = 60 # 时间窗口，秒
 CRASH_THRESHOLD      = 3        # 时间窗口内抖动次数达到该值，进程状态标记为抖动
 CALIBRATION_INTERVAL = 10  #节点校准时间间隔，秒
 
-# 是否保持抖动标记（不自动清除标记，手动确认处理后再清除标记）
-KEEP_FLAP_MARK = False
+# ---------- 检测到进程抖动处理方式 配置 ----------
+KEEP_FLAP_MARK = True # 是否保持抖动标记（True 不自动清除标记，手动确认处理后再清除标记）
+AUTO_STOPPED = True # 是否允许抖动进程自动停止, True 自动停止
 
-# 是否允许抖动进程自动停止
-AUTO_STOPPED = False
-
-###########################################
-
+# ---------- 本监听器的变量 配置 ----------
 MAIN_LOOP = None
-
 CRASH_STATE_LOCK = threading.Lock()
+RESTART_TIMESTAMPS = defaultdict(list) # { full_name: [最近启动的时间戳列表] }
+ACKNOWLEDGED_CRASHES = {} # { full_name: 被管理员手动确认过的时间戳 }
+EVER_RUNNING = set() # 曾经成功进入过 RUNNING 的进程集合，用于区分「起不来」和「能起来但反复挂」
 
-# { full_name: [最近启动的时间戳列表] }
-RESTART_TIMESTAMPS = defaultdict(list)
 
-# { full_name: 被管理员手动确认过的时间戳 }
-ACKNOWLEDGED_CRASHES = {}
-
-# 曾经成功进入过 RUNNING 的进程集合，用于区分「起不来」和「能起来但反复挂」
-EVER_RUNNING = set()
-
-# ★ 新增：已自动停止的进程集合，防止重复发停止指令
-# AUTO_STOPPED_PROCESSES = set()
-
+################ 监听程序主体 ################
 
 def detect_crash_loop(full_name):
     """
@@ -154,8 +143,6 @@ def acknowledge_crash(full_name):
         # 同时清空该进程的重启记录，这样即使再次抖动也会重新计数
         RESTART_TIMESTAMPS[full_name].clear()
         
-        # ★ 新增：确认时移除锁存标记和自动停止标记，下次抖动可以正常触发
-        # AUTO_STOPPED_PROCESSES.discard(full_name)
     return {"success": True, "message": "已确认处理"}
 
 
@@ -165,19 +152,10 @@ class SupervisorProxy:
         self.url = url
         self.rpc = None
         self._connect()
-
+    
     def _connect(self):
         self.rpc = ServerProxy(self.url)
-
-    def _retry_name(self, func_name, *args):
-        """RPC 失败时自动重连一次；func_name 为 supervisor.xxx 方法名"""
-        try:
-            return getattr(self.rpc.supervisor, func_name)(*args)
-        except Exception as e:
-            logger.warning(f"RPC 调用失败，尝试重连: {e}")
-            self._connect()
-            return getattr(self.rpc.supervisor, func_name)(*args)
-
+    
     def _retry(self, func, *args, **kwargs):
         """RPC 失败时自动重连一次"""
         try:
@@ -186,11 +164,12 @@ class SupervisorProxy:
             logger.warning(f"RPC 调用失败，尝试重连: {e}")
             self._connect()
             return func(*args, **kwargs)
-
+    
     def get_all_processes(self):
-        """获取所有进程完整信息（含抖动循环检测结果）"""
+        """获取所有进程完整信息
+        在原始数据中，追加了抖动循环检测数据
+        """
         try:
-            # procs = self._retry_name("getAllProcessInfo")
             procs = self._retry(self.rpc.supervisor.getAllProcessInfo)
             result = []
             for p in procs:
@@ -221,29 +200,27 @@ class SupervisorProxy:
         except Exception as e:
             logger.error(f"getAllProcessInfo 失败: {e}")
             return []
-
+    
     def start_process(self, full_name):
         """启动进程，full_name 形如 'group:name' 或 'name'"""
         try:
-            # self._retry_name("startProcess", full_name, True)
             self._retry(self.rpc.supervisor.startProcess, full_name, True)
             return {"success": True}
         except Fault as e:
             return {"success": False, "error": e.faultString}
         except Exception as e:
             return {"success": False, "error": str(e)}
-
+    
     def stop_process(self, full_name):
         """停止进程"""
         try:
-            # self._retry_name("stopProcess", full_name, True)
             self._retry(self.rpc.supervisor.stopProcess, full_name, True)
             return {"success": True}
         except Fault as e:
             return {"success": False, "error": e.faultString}
         except Exception as e:
             return {"success": False, "error": str(e)}
-
+    
     def restart_process(self, full_name):
         """重启进程"""
         stop_res = self.stop_process(full_name)
@@ -254,6 +231,85 @@ class SupervisorProxy:
         time.sleep(0.5)
         return self.start_process(full_name)
     
+    def startAll(self):
+        """启动全部进程"""
+        try:
+            self._retry(self.rpc.supervisor.startAllProcesses)
+            return {"success": True}
+        except Fault as e:
+            return {"success": False, "error": e.faultString}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    def stopAll(self):
+        """停止全部进程
+        但是会把本监听器也给停止了，所以此方法前端已经删掉了
+        """
+        try:
+            self._retry(self.rpc.supervisor.stopAllProcesses)
+            return {"success": True}
+        except Fault as e:
+            return {"success": False, "error": e.faultString}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    def reloadConfig(self):
+        """重新加载配置
+        相当于 supervisorctl reread && supervisorctl update
+        """
+        try:
+            added, changed, removed = self._retry(self.rpc.supervisor.reloadConfig)[0]
+            
+            if not added and not changed and not removed:
+                logger.info("ℹ️ 配置文件无变化")
+                return
+            else:
+                logger.info(f"📋 检测到配置有变化 → 新增:{added if added else '无'} | 修改:{changed if changed else '无'} | 删除:{removed if removed else '无'}")
+            
+            # ========== 1. 处理删除的进程：必须先停，再移除 ==========
+            for group in removed:
+                try:
+                    logger.info(f"⏳ 正在停止删除进程: {group}")
+                    self._retry(self.rpc.supervisor.stopProcessGroup, group, True) # True，等进程完全退出再往下走
+                    self._retry(self.rpc.supervisor.removeProcessGroup, group)
+                    logger.info(f"🗑️ 已停止并删除: {group}")
+                except Fault as e:
+                    # 直接打印supervisor返回的具体错误，比如STILL_RUNNING/NO_PROCESS
+                    logger.error(f"❌ 删除{group}失败，错误码:{e.faultCode}，原因:{e.faultString}")
+                except Exception as e:
+                    logger.error(f"❌ 删除{group}异常: {str(e)}")
+            
+            # ========== 2. 处理修改的进程：先停旧的→移除旧配置→加新配置自动启动 ==========
+            for group in changed:
+                try:
+                    logger.info(f"⏳ 正在重载修改进程: {group}")
+                    self._retry(self.rpc.supervisor.stopProcessGroup, group, True)
+                    self._retry(self.rpc.supervisor.removeProcessGroup, group)
+                    self._retry(self.rpc.supervisor.addProcessGroup, group)  # add会自动按新配置启动进程
+                    logger.info(f"🔄 已重载修改: {group}")
+                except Fault as e:
+                    logger.error(f"❌ 重载{group}失败，错误码:{e.faultCode}，原因:{e.faultString}")
+                except Exception as e:
+                    logger.error(f"❌ 重载{group}异常: {str(e)}")
+            
+            # ========== 3. 处理新增的进程：直接add自动启动 ==========
+            for group in added:
+                try:
+                    self._retry(self.rpc.supervisor.addProcessGroup, group)
+                    logger.info(f"✅ 已启动新增: {group}")
+                except Fault as e:
+                    logger.error(f"❌ 启动{group}失败，错误码:{e.faultCode}，原因:{e.faultString}")
+                except Exception as e:
+                    logger.error(f"❌ 启动{group}异常: {str(e)}")
+            
+            logger.info("🎉 配置应用完成")
+            return True
+        
+        except Exception as e:
+            logger.error(f"❌ 连接supervisor失败: {str(e)}")
+            traceback.print_exc()
+            return False
+
 
 sup = SupervisorProxy(SUPERVISOR_RPC_URL)
 
@@ -263,7 +319,7 @@ async def ws_handler(websocket):
     """处理前端 WebSocket 连接（收 + 发）。websockets>=12 只传一个参数"""
     WS_CLIENTS.add(websocket)
     logger.info(f"前端已连接，当前连接数: {len(WS_CLIENTS)}")
-
+    
     # 新连接一建立，立刻发全量快照
     try:
         all_procs = await asyncio.to_thread(sup.get_all_processes)
@@ -274,17 +330,17 @@ async def ws_handler(websocket):
         }, ensure_ascii=False))
     except Exception as e:
         logger.error(f"全量同步失败: {e}")
-
+        
     try:
         async for raw_msg in websocket:
             try:
                 msg = json.loads(raw_msg)
             except json.JSONDecodeError:
                 continue
-
+            
             msg_type = msg.get("type")
-
-            # ---------- 操作单进程指令：启动/停止/重启 ----------
+            
+            # ---------- 操作单个进程指令：启动/停止/重启 ----------
             if msg_type == "command":
                 action = msg.get("action")
                 proc   = msg.get("process")
@@ -292,7 +348,7 @@ async def ws_handler(websocket):
                 if not action or not proc:
                     continue
                 logger.info(f"收到指令: {action} {proc}")
-
+                
                 # 在后台线程执行RPC，不阻塞事件循环
                 if action == "start":
                     result = await asyncio.to_thread(sup.start_process, proc)
@@ -302,20 +358,40 @@ async def ws_handler(websocket):
                     result = await asyncio.to_thread(sup.restart_process, proc)
                 else:
                     result = {"success": False, "error": f"未知操作: {action}"}
-
+                
                 await websocket.send(json.dumps({
                     "type": "command_result",
                     "req_id": req_id,
                     "process": proc,
                     "result": result,
                 }, ensure_ascii=False))
-
+            
+            # ---------- 操作全部进程指令：启动全部/停止全部 ----------
+            # 但是会把本监听器也给停止了，所以此方法前端已经删掉了
+            elif msg_type == "commandAll":
+                action = msg.get("action")
+                req_id = msg.get("req_id")
+                if not action:
+                    continue
+                logger.info(f"收到指令: {action}")
+                
+                if action == "startAll":
+                    result = await asyncio.to_thread(sup.startAll)
+                elif action == "stopAll":
+                    result = await asyncio.to_thread(sup.stopAll)
+                
+                await websocket.send(json.dumps({
+                    "type": "command_result",
+                    "req_id": req_id,
+                    "result": result,
+                }, ensure_ascii=False))
+            
             # ---------- 手动确认抖动已处理 ----------
             elif msg_type == "acknowledge_flap":
                 proc = msg.get("process")
                 req_id = msg.get("req_id")
                 if proc:
-                    logger.info(f"管理员确认已处理抖动: {proc}")
+                    logger.info(f"前端确认已处理抖动: {proc}")
                     result = await asyncio.to_thread(acknowledge_crash, proc)
                     # 先回复结果
                     await websocket.send(json.dumps({
@@ -332,11 +408,15 @@ async def ws_handler(websocket):
                         "ts": time.time(),
                     }, ensure_ascii=False))
             
-            # ---------- 【新增】手动刷新当前节点状态 ----------
+            # ---------- 手动刷新当前节点（包括重新加载配置） ----------
             elif msg_type == "refresh":
                 req_id = msg.get("req_id")
-                logger.info(f"前端请求手动刷新当前节点状态")
-                # 只给当前请求的连接发全量数据，不广播，不影响其他人
+                logger.info(f"前端请求手动刷新当前节点")
+                
+                # 重新加载当前节点的配置文件
+                await asyncio.to_thread(sup.reloadConfig)
+                
+                # 只给当前请求的节点发送全量数据
                 all_procs = await asyncio.to_thread(sup.get_all_processes)
                 await websocket.send(json.dumps({
                     "type": "full_sync",
@@ -349,11 +429,11 @@ async def ws_handler(websocket):
                     "success": True,
                     "message": "刷新完成"
                 }, ensure_ascii=False))
-
+            
             # ---------- 重启整个 Supervisor ----------
             elif msg_type == "restart_supervisor":
                 req_id = msg.get("req_id")
-                logger.warning("管理员请求重启Supervisor守护进程！")
+                logger.warning("前端请求重启Supervisor守护进程！")
                 try:
                     await websocket.send(json.dumps({
                         "type": "op_result",
@@ -361,11 +441,9 @@ async def ws_handler(websocket):
                         "success": True,
                         "message": "重启指令已发送"
                     }, ensure_ascii=False))
-                    # 重启Supervisor主进程
-                    def do_restart():
-                        # 调用Supervisor RPC重启主进程，注意rpc对象是sup.rpc
-                        sup.rpc.supervisor.restart()
-                    await asyncio.to_thread(do_restart)
+                    
+                    # 调用Supervisor RPC重启主进程，注意rpc对象是sup.rpc
+                    await asyncio.to_thread(sup.rpc.supervisor.restart())
                 except Exception as e:
                     logger.error(f"重启Supervisor失败: {e}")
                     await websocket.send(json.dumps({
@@ -374,7 +452,7 @@ async def ws_handler(websocket):
                         "success": False,
                         "message": str(e)
                     }, ensure_ascii=False))
-
+    
     except websockets.exceptions.ConnectionClosed:
         pass
     except Exception as e:
@@ -554,17 +632,9 @@ def main():
         
         is_flapping, flap_count, last_start, acknowledged = detect_crash_loop(full_name)
         
-        '''
         # 新增逻辑，发生抖动，并且此进程不在集合中，就停止此进程，由人工处理
-        # if AUTO_STOPPED and is_flapping and full_name not in AUTO_STOPPED_PROCESSES:
-        if AUTO_STOPPED and flap_count > CRASH_THRESHOLD+3 and full_name not in AUTO_STOPPED_PROCESSES:
-            sup.stop_process(full_name)
-            AUTO_STOPPED_PROCESSES.add(full_name)
-        '''
-        
-        # 不使用集合，而是判断进程当前状态，如果已经停止了，就不再重复停止
+        # 判断进程当前状态，如果已经停止了，就不再重复停止
         if AUTO_STOPPED and is_flapping and eventname not in ("PROCESS_STATE_STOPPED", "PROCESS_STATE_EXITED"):
-        # if AUTO_STOPPED and flap_count > CRASH_THRESHOLD+3 and eventname not in ("PROCESS_STATE_STOPPED", "PROCESS_STATE_EXITED"):
             sup.stop_process(full_name)
         
         

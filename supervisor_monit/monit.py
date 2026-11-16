@@ -1,5 +1,5 @@
-from flask import Flask, render_template, url_for, request, jsonify, redirect, Response
-from xmlrpc.client import ServerProxy, Transport, SafeTransport
+from flask import Flask, render_template, url_for, request, jsonify, redirect, Response, abort
+from xmlrpc.client import ServerProxy, Transport, SafeTransport, Fault
 
 import os
 from collections import Counter
@@ -11,7 +11,8 @@ import traceback
 
 from threading import Lock
 
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 TZ="Asia/Shanghai"
 fmt="%Y-%m-%d %H:%M:%S.%3f"
@@ -75,51 +76,14 @@ serverDict = {
         "user":"admin",
         "passwd":"admin",
     },
-    "node03":{
-        "ip":"192.168.1.123",
-        "port":"8000",
-        "user":"admin",
-        "passwd":"admin",
-    },
-    "node04":{
-        "ip":"192.168.1.124",
-        "port":"8000",
-        "user":"admin",
-        "passwd":"admin",
-    }
-}
-'''
-nodeDict = {
-    "192.168.1.121:8000":{
-        "nodename":"node01",
+    "docker":{
         "ip":"192.168.1.121",
-        "port":"8000",
-        "user":"admin",
-        "passwd":"admin",
-    },
-    "192.168.1.122:8000":{
-        "nodename":"node02",
-        "ip":"192.168.1.122",
-        "port":"8000",
-        "user":"admin",
-        "passwd":"admin",
-    },
-    "192.168.1.123:8000":{
-        "nodename":"node03",
-        "ip":"192.168.1.123",
-        "port":"8000",
-        "user":"admin",
-        "passwd":"admin",
-    },
-    "192.168.1.124:8000":{
-        "nodename":"node04",
-        "ip":"192.168.1.124",
-        "port":"8000",
+        "port":"9001",
         "user":"admin",
         "passwd":"admin",
     }
 }
-'''
+
 
 def format_server(sDict):
     # 直观写法：逐一遍历，用"ip:端口"作为key（推荐）
@@ -254,20 +218,7 @@ flap_detector = ProcessFlapDetector()
 # 格式化字典
 nodeDict = format_server(serverDict)
 
-
 ##################################################################################
-
-
-@app.route('/api/ack_flap', methods=['POST'])
-def ack_flap():
-    """确认处理抖动，清除后端标记，刷新也不会回来"""
-    data = request.json
-    node = data.get('node') # 你模板里渲染的时候把参数带上就行
-    proc_name = data.get('proc_name')
-    
-    # 真清后端的标记和历史，下次刷新就不会再返回is_flapping=true
-    flap_detector.clear_one(node, proc_name)
-    return jsonify(code=200)
 
 
 def getUrlRpc(node, ndict):
@@ -457,39 +408,124 @@ def getAllInfoTimeOut(node, total_timeout=3):
         # traceback.print_exc()
         return []
 
+def formatted(ts):
+    """ 时间戳转北京时间 """
+    dt_beijing = datetime.fromtimestamp(ts, tz=ZoneInfo("Asia/Shanghai"))
+    return dt_beijing.strftime('%Y-%m-%d %H:%M:%S')
 
-@app.route("/getenv")
-def index_getenv():
-    return os.getenv('prompt1') # gunicorn 配置文件中定义的变量
-    
 
+# 主页
 @app.route("/")
 def index():
-    return render_template("monit.html", envtest=os.getenv('prompt1'), sdict=nodeDict, funAllInfo=getAllInfoTimeOut)#渲染模板页面
+    node = request.args.get('node') # 192.168.1.121:8000
+    return render_template("monit.html", sn=node, sdict=nodeDict, funAllInfo=getAllInfoTimeOut, beijing_time=formatted)#渲染模板页面
+
+
+#################### api 操作命令 开始 ####################
+
+
+@app.route('/api/node/<sn>')
+def node_fragment(sn):
+    """只返回单个节点的 HTML 片段"""
+    info = nodeDict.get(sn)
+    if info is None:
+        abort(404)
+    return render_template('_node.html', sn=sn, info=info, funAllInfo=getAllInfoTimeOut, beijing_time=formatted)
+
+
+@app.route('/api/ack_flap', methods=['POST'])
+def ack_flap():
+    """确认处理抖动，清除后端标记，刷新也不会回来"""
+    data = request.json
+    node = data.get('node') # 你模板里渲染的时候把参数带上就行
+    proc_name = data.get('proc_name')
+    
+    # 真清后端的标记和历史，下次刷新就不会再返回is_flapping=true
+    flap_detector.clear_one(node, proc_name)
+    return jsonify(code=200)
+
+#################### rpc 操作命令 开始 ####################
+
+# 更新配置
+@app.route("/reloadConfig")
+def reloadConfig():
+    try:
+        # 自定义函数获取rpc地址
+        node = request.args.get('node') # 192.168.1.121:8000
+        url = getUrlRpc(node,nodeDict)
+        server = ServerProxy(url)
+        added, changed, removed = server.supervisor.reloadConfig()[0]
+        
+        if not added and not changed and not removed:
+            return "ℹ️  配置无变化，无需操作"
+        else:
+            print(f"📋 检测到变化 → 新增:{added if added else '无'} | 修改:{changed if changed else '无'} | 删除:{removed if removed else '无'}")
+        
+        # ========== 1. 处理删除的进程：必须先停，再移除 ==========
+        for group in removed:
+            try:
+                print(f"⏳ 正在停止删除进程: {group}")
+                server.supervisor.stopProcessGroup(group, True)  # True=等进程完全退出再往下走
+                server.supervisor.removeProcessGroup(group)
+                print(f"🗑️  已停止并删除: {group}")
+            except Fault as e:
+                # 直接打印supervisor返回的具体错误，比如STILL_RUNNING/NO_PROCESS
+                print(f"❌ 删除{group}失败，错误码:{e.faultCode}，原因:{e.faultString}")
+            except Exception as e:
+                print(f"❌ 删除{group}异常: {str(e)}")
+        
+        # ========== 2. 处理修改的进程：先停旧的→移除旧配置→加新配置自动启动 ==========
+        for group in changed:
+            try:
+                print(f"⏳ 正在重载修改进程: {group}")
+                server.supervisor.stopProcessGroup(group, True)
+                server.supervisor.removeProcessGroup(group)
+                server.supervisor.addProcessGroup(group)  # add会自动按新配置启动进程
+                print(f"🔄 已重载修改: {group}")
+            except Fault as e:
+                print(f"❌ 重载{group}失败，错误码:{e.faultCode}，原因:{e.faultString}")
+            except Exception as e:
+                print(f"❌ 重载{group}异常: {str(e)}")
+        
+        # ========== 3. 处理新增的进程：直接add自动启动 ==========
+        for group in added:
+            try:
+                server.supervisor.addProcessGroup(group)
+                print(f"✅ 已启动新增: {group}")
+            except Fault as e:
+                print(f"❌ 启动{group}失败，错误码:{e.faultCode}，原因:{e.faultString}")
+            except Exception as e:
+                print(f"❌ 启动{group}异常: {str(e)}")
+        
+        return "🎉 配置应用完成"
+    
+    except Exception as e:
+        print(f"❌ 连接supervisor失败: {str(e)}")
+        traceback.print_exc()
+        return "❌ 配置失败"
 
 
 # 重启 supervisor
-@app.route("/restartSupervisor")
+@app.route("/restartSupervisor.html")
 def restartSupervisor():
     # 自定义函数获取rpc地址
-    node = request.args['node'] # pyweb1
+    node = request.args.get('node') # 192.168.1.121:8000
     url = getUrlRpc(node,nodeDict)
     server = ServerProxy(url)
     server.supervisor.restart()
-    # 执行跳转到 /restartSupervisor?message=restartSupervisor_192.168.1.121:8000
-    return redirect(url_for('index',message="restartSupervisor_"+node))
+    return ["随便写点，不然前台会失败"]
 
 
-# 开始或停止某个进程
+# 启动或停止某个进程
 # 操作组内的程序时，要把组名与程序名用冒号连接，变成 组名:程序名
 #亲测验证：当进程名与组名重名时，可以直接使用进程名，
 #此时组名对此进程依然有效，继续支持使用组名:进程名进行操作，
 #也继续支持对此组名进行操作，命令也会影响到此进程
 @app.route("/startOrStop.html")
-def index_one():
-    para = request.args['name']
-    method = request.args['method']
-    node = request.args['node']
+def startOrStop():
+    para = request.args.get('name')
+    method = request.args.get('method')
+    node = request.args.get('node')
     # url = "http://admin:admin@192.168.1.121:8000/RPC2"
     url = getUrlRpc(node,nodeDict)
     server = ServerProxy(url)
@@ -497,33 +533,31 @@ def index_one():
         {'methodName':method, 'params': [para]},
         
       ]
-
-    server.system.multicall(calls)
-    return redirect(url_for('index'))
+    
+    return server.system.multicall(calls)
 
 
 # 重启全部进程
 @app.route("/restartAll.html")
-def index_restartAll():
-    node = request.args['node']
+def restartAll():
+    node = request.args.get('node')
     # url = "http://admin:admin@192.168.1.121:8000/RPC2"
     url = getUrlRpc(node,nodeDict)
     server = ServerProxy(url)
-    calls = [ 
+    calls = [
         {'methodName':'supervisor.stopAllProcesses', 'params': []},
         {'methodName':'supervisor.startAllProcesses', 'params': []},
         
       ]
-
-    server.system.multicall(calls)
-    return redirect(url_for('index'))
+    
+    return server.system.multicall(calls)
 
 
 # 重启某个进程
 @app.route("/restartOne.html")
-def index_restartOne():
-    para = request.args['name']
-    node = request.args['node']
+def restartOne():
+    para = request.args.get('name')
+    node = request.args.get('node')
     # url = "http://admin:admin@192.168.1.121:8000/RPC2"
     url = getUrlRpc(node,nodeDict)
     server = ServerProxy(url)
@@ -533,15 +567,14 @@ def index_restartOne():
         
       ]
 
-    server.system.multicall(calls)
-    return redirect(url_for('index'))
+    return server.system.multicall(calls)
 
 
 # 重启某个组
 @app.route("/restartGroup.html")
-def index_restartGroup():
-    para = request.args['name']
-    node = request.args['node']
+def restartGroup():
+    para = request.args.get('name')
+    node = request.args.get('node')
     # url = "http://admin:admin@192.168.1.121:8000/RPC2"
     url = getUrlRpc(node,nodeDict)
     server = ServerProxy(url)
@@ -551,8 +584,7 @@ def index_restartGroup():
         
       ]
 
-    server.system.multicall(calls)
-    return redirect(url_for('index'))
+    return server.system.multicall(calls)
 
 
 @app.route("/allconfiginfo.html")
@@ -573,6 +605,13 @@ def get_methods():
     Methods = server.system.listMethods()
     
     return Methods
+
+
+@app.route("/getenv")
+def index_getenv():
+    return os.getenv('prompt1') # gunicorn 配置文件中定义的变量
+
+#################### rpc 操作命令 结束 ####################
 
 
 '''
