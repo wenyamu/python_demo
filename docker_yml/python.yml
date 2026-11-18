@@ -2,7 +2,7 @@ version: '3'
 services:
   abc:
     # 镜像本地无则自动下载
-    image: python:slim-bullseye
+    image: python:bullseye
     hostname: supervisorHost
     # 映射端口 【宿主机端口:容器端口】
     ports:
