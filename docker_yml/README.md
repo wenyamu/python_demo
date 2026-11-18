@@ -34,7 +34,7 @@ EOF
 
 ### 创建程序文件
 ```
-cat > /etc/supervisor/power_test.py << EOF
+cat > /etc/supervisor/power_test.py <<EOF
 import time, datetime, os, fcntl
 
 # ========== 配置，要多少行改这里就行，100/1000都可以 ==========
